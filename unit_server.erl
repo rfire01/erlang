@@ -1,11 +1,4 @@
-%%====================================================================
-%%
-%% @author Juanse Perez Herrero <juanseph@gmail.com> [http://bytefilia.com]
-%% @copyright CC Attribution - 2013
-%%
-%% A sample otp gen_server template
-%%
-%%====================================================================
+
 -module(unit_server).
 -behaviour(gen_server).
 
@@ -19,6 +12,9 @@
          handle_info/2, 
          terminate/2, 
          code_change/3]).
+% gen_server func
+-export([update/2]).
+
 
 %%====================================================================
 %% Server interface
@@ -36,9 +32,10 @@ stop(ServName) ->
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
-init([Pars]) ->
+init([]) ->
     io:format("Initializing with ~p~n",[Pars]),
     process_flag(trap_exit, true),
+    ets:new(genral,[set,named_table]),
     {ok, initialized}.
 
 %% Synchronous, possible return values  
@@ -92,4 +89,12 @@ terminate(_Reason, _Server) ->
 
 
 %% Code change
-code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.    
+code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.   
+
+
+
+update(Unit_type,Unit_data) ->
+    io:format("update ~p:~p~n",[Unit_type,Unit_data]).
+    %%process_flag(trap_exit, true),
+    %%ets:new(genral,[set,named_table]),
+   %% {ok, initialized}.

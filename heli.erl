@@ -3,16 +3,16 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/0]).
+-export([start/1]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,move_destination/2,move_destination/3, handle_event/3,
 		search_circle/2, search_circle/3,
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
--export([start_move/0,move_dst/3,move_circle/1]).
+-export([start_move/1,move_dst/4,move_circle/2]).
  
--define(SERVER, ?MODULE).
+%%-define(SERVER, ?MODULE).
 -define(MAXX, 1200).
 -define(MINX, 200).
 -define(MAXY, 556).
@@ -33,17 +33,17 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start() ->
-    gen_fsm:start({global, ?SERVER}, ?MODULE, [], []).
+start(Name) ->
+    gen_fsm:start({global, Name}, ?MODULE, [], []).
  
-start_move() ->
-  gen_fsm:send_event({global,?SERVER}, {idle_move}).
+start_move(Name) ->
+  gen_fsm:send_event({global,Name}, {idle_move}).
   
-move_dst(X,Y,Objective) ->
-  gen_fsm:send_event({global,?SERVER}, {move_dst, X, Y,Objective}).
+move_dst(Name,X,Y,Objective) ->
+  gen_fsm:send_event({global,Name}, {move_dst, X, Y,Objective}).
   
-move_circle(R) ->
-  gen_fsm:send_event({global,?SERVER}, {circle, R}).
+move_circle(Name,R) ->
+  gen_fsm:send_event({global,Name}, {circle, R}).
  
 %%%===================================================================
 %%% gen_fsm callbacks

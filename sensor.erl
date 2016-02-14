@@ -3,7 +3,7 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/3]).
+-export([start/4]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3, handle_event/3,
@@ -11,7 +11,7 @@
  
 -export([check_alarm/4,handling_fire/1,alarm_off/4]).
  
--define(SERVER, ?MODULE).
+%%-define(SERVER, ?MODULE).
  
 %-record(state, {code}).
  
@@ -28,17 +28,17 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start(Radius,X,Y) ->
-    gen_fsm:start({local, ?SERVER}, ?MODULE, [Radius,X,Y], []).
+start(Name,Radius,X,Y) ->
+    gen_fsm:start({global, Name}, ?MODULE, [Radius,X,Y], []).
  
 check_alarm(Name,X,Y,R) ->
-  gen_fsm:send_event(?SERVER, {check_alarm,Name,X,Y,R}).
+  gen_fsm:send_event({global, Name}, {check_alarm,Name,X,Y,R}).
   
 handling_fire(Name) ->
-  gen_fsm:send_event(?SERVER, {handling_fire,Name}).
+  gen_fsm:send_event({global, Name}, {handling_fire,Name}).
   
 alarm_off(Name,X,Y,R) ->
-  gen_fsm:send_event(?SERVER, {alarm_off,Name,X,Y,R}).
+  gen_fsm:send_event({global, Name}, {alarm_off,Name,X,Y,R}).
  
 %%%===================================================================
 %%% gen_fsm callbacks

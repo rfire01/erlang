@@ -3,15 +3,15 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/3]).
+-export([start/4]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,fire_out/2,fire_out/3, handle_event/3,
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
--export([start_sim/0,extinguish_fire/0,merge/0,update_sens/2,update_heli/2]).
+%%-export([start_sim/1,extinguish_fire/1,merge/1,update_sens/2,update_heli/2]).
+-export([start_sim/1,extinguish_fire/1,merge/1]).
  
--define(SERVER, ?MODULE).
  
 %-record(state, {code}).
  
@@ -28,23 +28,23 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start(Radius,X,Y) ->
-    gen_fsm:start({local, ?SERVER}, ?MODULE, [Radius,X,Y], []).
+start(Name,Radius,X,Y) ->
+    gen_fsm:start({global, Name}, ?MODULE, [Radius,X,Y], []).
  
-start_sim() ->
-  gen_fsm:send_event(?SERVER, {increase}).
+start_sim(Name) ->
+  gen_fsm:send_event({global, Name}, {increase}).
   
-extinguish_fire() ->
-  gen_fsm:send_event(?SERVER, {decrease}).
+extinguish_fire(Name) ->
+  gen_fsm:send_event({global, Name}, {decrease}).
   
-merge() ->
-  gen_fsm:send_event(?SERVER, {merge}).
+merge(Name) ->
+  gen_fsm:send_event({global, Name}, {merge}).
   
-update_sens(Sens,Command) ->
-  gen_fsm:send_event(?SERVER, {update_sensor,Sens,Command}).
+%%update_sens(Sens,Command) ->
+%%  gen_fsm:send_event({global, Name}, {update_sensor,Sens,Command}).
   
-update_heli(Heli,Command) ->
-  gen_fsm:send_event(?SERVER, {update_heli,Heli,Command}).
+%%update_heli(Heli,Command) ->
+%%  gen_fsm:send_event({global, Name}, {update_heli,Heli,Command}).
  
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -68,8 +68,8 @@ init([StartRadius,X,Y]) ->
 	ets:insert(firedata,{radius,StartRadius}),
 	ets:insert(firedata,{x,X}),
 	ets:insert(firedata,{y,Y}),
-	ets:insert(firedata,{sensors,[]}),
-	ets:insert(firedata,{helicopters,[]}),
+	ets:insert(firedata,{sensors,[]}), 	  %%????????????
+	ets:insert(firedata,{helicopters,[]}),	  %%????????????
 	io:format("started fire with radius = ~p~n",[StartRadius]),
     {ok, idle, {}}.
  

@@ -3,7 +3,7 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/1]).
+-export([start/3]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,move_destination/2,move_destination/3, handle_event/3,
@@ -33,8 +33,8 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start(Name) ->
-    gen_fsm:start({global, Name}, ?MODULE, [], []).
+start(Name,X,Y) ->
+    gen_fsm:start({global, Name}, ?MODULE, [X,Y], []).
  
 start_sim(Name) ->
   gen_fsm:send_event({global,Name}, {idle_move}).
@@ -62,12 +62,12 @@ move_circle(Name,R) ->
 %%                     {stop, StopReason}
 %% @end
 %%--------------------------------------------------------------------
-init([]) ->
+init([X,Y]) ->
 	%process_flag(trap_exit, true),
-    ets:new(cord,[set,named_table]),
-    ets:insert(cord,{x,800}),
-    ets:insert(cord,{y,400}),
-    {ok, idle, {up,right}}.
+    Ets = ets:new(cord,[set]),
+    ets:insert(Ets,{x,X}),
+    ets:insert(Ets,{y,Y}),
+    {ok, idle, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -87,12 +87,12 @@ init([]) ->
 idle({idle_move}, State) ->
   random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
   %ets:insert(cord,{movetime,Time}),	
-  ets:insert(cord,{xdif,(random:uniform() * 2 - 1)*10}),
-  ets:insert(cord,{ydif,(random:uniform() * 2 - 1)*10}),
+  ets:insert(State,{xdif,(random:uniform() * 2 - 1)*10}),
+  ets:insert(State,{ydif,(random:uniform() * 2 - 1)*10}),
   {next_state, idle, State,100};
 
 idle(timeout, State) ->
-  idle_move(),
+  idle_move(State),
   %[{_,CurrentTime}] = ets:lookup(cord,movetime),
   %case CurrentTime =< 0 of
 	%true -> io:format("TIME OVER~n"),{next_state, idle, State};
@@ -101,47 +101,49 @@ idle(timeout, State) ->
   %end;
   {next_state, idle, State,100};
 
-idle({move_dst,DstX,DstY,Objective},_State) ->
-	[{_,CurrentX}] = ets:lookup(cord,x),
-	[{_,CurrentY}] = ets:lookup(cord,y),
+idle({move_dst,DstX,DstY,Objective},State) ->
+	io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
+	[{_,CurrentX}] = ets:lookup(State,x),
+	[{_,CurrentY}] = ets:lookup(State,y),
 	case (DstX - CurrentX)/= 0 of
 		true -> M=(DstY-CurrentY) / (DstX - CurrentX),
 				N = DstY - M * DstX;
 		false -> M=inf, N=0
 	end,
-	{next_state,move_destination,{M,N,DstX,DstY,Objective},100};
+	{next_state,move_destination,{M,N,DstX,DstY,Objective,State},100};
 	
-idle({circle,R},_State) ->
-	[{_,CurrentX}] = ets:lookup(cord,x),
-	[{_,CurrentY}] = ets:lookup(cord,y),
+idle({circle,R},State) ->
+	[{_,CurrentX}] = ets:lookup(State,x),
+	[{_,CurrentY}] = ets:lookup(State,y),
 	CX = CurrentX - R,
 	CY = CurrentY,
-	{next_state,search_circle,{R,CX,CY,0},100};
+	{next_state,search_circle,{R,CX,CY,0,State},100};
   
 idle(_Event, State) ->
   {next_state, idle, State}.
   
-move_destination(timeout,{M,N,DstX,DstY,Objective}) -> 
-	[{_,CurrentX}] = ets:lookup(cord,x),
-	[{_,CurrentY}] = ets:lookup(cord,y),
-	Arrived = step_dest(CurrentX,CurrentY,M,N,DstX,DstY),
+move_destination(timeout,{M,N,DstX,DstY,Objective,Ets}) -> 
+	[{_,CurrentX}] = ets:lookup(Ets,x),
+	[{_,CurrentY}] = ets:lookup(Ets,y),
+	Arrived = step_dest(CurrentX,CurrentY,M,N,DstX,DstY,Ets),
 	case Arrived of
-		true -> io:format("arrive to objective: ~p~n",[Objective]),
-				{next_state,idle,{}};
-		false -> {next_state,move_destination,{M,N,DstX,DstY,Objective},100}
+		true -> io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
+				{CR,CX,CY,A} = Objective,
+				{next_state,search_circle,{CR,CX,CY,A,Ets},100};
+		false -> {next_state,move_destination,{M,N,DstX,DstY,Objective,Ets},100}
 	end;
 	
 move_destination(_Event, State) ->
   {next_state, move_destination, State,100}.
   
 
-search_circle(timeout,{R,CX,CY,Angle}) -> 
+search_circle(timeout,{R,CX,CY,Angle,Ets}) -> 
 	%[{_,CurrentX}] = ets:lookup(cord,x),
-	step_circle(CX,CY,R,Angle),
+	step_circle(CX,CY,R,Angle,Ets),
 	case Angle == 360 of 
 		true -> io:format("finished circle~n"),
-				{next_state,idle,{}};
-		false -> {next_state,search_circle,{R,CX,CY,Angle + 1},100}
+				{next_state,idle,Ets};
+		false -> {next_state,search_circle,{R,CX,CY,Angle + 1,Ets},100}
 	end;	
 
 	
@@ -260,45 +262,45 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-idle_move() ->
-  [{_,DifX}] = ets:lookup(cord,xdif),
-  [{_,DifY}] = ets:lookup(cord,ydif),
-  [{_,CurrentX}] = ets:lookup(cord,x),
+idle_move(Ets) ->
+  [{_,DifX}] = ets:lookup(Ets,xdif),
+  [{_,DifY}] = ets:lookup(Ets,ydif),
+  [{_,CurrentX}] = ets:lookup(Ets,x),
   NewX = CurrentX+DifX,
-  [{_,CurrentY}] = ets:lookup(cord,y),
+  [{_,CurrentY}] = ets:lookup(Ets,y),
   NewY = CurrentY+DifY,
   case DifX > 0 of
 	true -> 
 		case ?MAXX - NewX < 1 of
-			true -> ets:insert(cord,{xdif,-1*DifX});
+			true -> ets:insert(Ets,{xdif,-1*DifX});
 			false -> same_dir
 		end;
 	false ->
 		case NewX - ?MINX < 1 of
-			true -> ets:insert(cord,{xdif,-1*DifX});
+			true -> ets:insert(Ets,{xdif,-1*DifX});
 			false -> same_dir
 		end
   end,
   case DifY > 0 of
 	true -> 
 		case ?MAXY - NewY < 1 of
-			true -> ets:insert(cord,{ydif,-1*DifY});
+			true -> ets:insert(Ets,{ydif,-1*DifY});
 			false -> same_dir
 		end;
 	false -> 
 		case NewY - ?MINY < 1 of
-			true -> ets:insert(cord,{ydif,-1*DifY});
+			true -> ets:insert(Ets,{ydif,-1*DifY});
 			false -> same_dir
 		end
   end,
-  ets:insert(cord,{x,NewX}),
-  ets:insert(cord,{y,NewY}).
+  ets:insert(Ets,{x,NewX}),
+  ets:insert(Ets,{y,NewY}).
   %io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]).
   
   
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-step_dest(X,Y,M,N,DstX,DstY) -> 
+step_dest(X,Y,M,N,DstX,DstY,Ets) -> 
 	case M /= inf of	
 		true ->case M =< 1 of
 				true -> case abs(DstX-X) < 1 of
@@ -332,17 +334,17 @@ step_dest(X,Y,M,N,DstX,DstY) ->
 				 end,
 				 NewX = X
 	end,
-	ets:insert(cord,{x,NewX}),
-	ets:insert(cord,{y,NewY}),
+	ets:insert(Ets,{x,NewX}),
+	ets:insert(Ets,{y,NewY}),
 	io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]),
 	((abs(DstX - X) == 0) and (abs(DstY - Y) == 0)).
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-step_circle(CX,CY,R,Angle) -> 
+step_circle(CX,CY,R,Angle,Ets) -> 
 	NewX = math:cos(Angle * math:pi() / 180) * R + CX,
 	NewY = math:sin(Angle * math:pi() / 180) *R + CY,
-	ets:insert(cord,{x,NewX}),
-	ets:insert(cord,{y,NewY}),
+	ets:insert(Ets,{x,NewX}),
+	ets:insert(Ets,{y,NewY}),
 	%Debug = math:sqrt( (NewX-CX) * (NewX-CX) + (NewY-CY) * (NewY-CY)),
 	io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]). %distance from circle = ~p~n",[NewX,NewY,Debug])

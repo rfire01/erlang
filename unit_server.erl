@@ -27,11 +27,14 @@
 %% Booting server (and linking to it)
 start(GenName) -> 
     gen_server:start({global, GenName}, ?MODULE, [GenName], []).
-	
+	 
 start_sim(GenName) -> 
     gen_server:cast({global, GenName}, {start_sim}).
 	
-create(GenName,Data) -> 
+create(GenName,_Data1) -> 
+	Data = [{{sensor,sensor1},10,10,10},{{fire,fire1},1,30,10},{{heli,heli1},7,85,not_working}],%[ {{heli,heli1},7,85,not_working},{{heli,heli2},800,45,not_working},{{heli,heli3},180,340,not_working},
+			% {{fire,fire1},7,85,50},{{fire,fire2},800,123,50},{{fire,fire3},12,230,50},
+			 %{{sensor,sensor1},14,47,10},{{sensor,sensor2},314,147,10},{{sensor,sensor3},140,470,10}],
     gen_server:cast({global, GenName}, {create,Data}).
 	
 update(GenName,Type,Data) -> 
@@ -74,23 +77,27 @@ handle_call(Message, From, State) ->
 % {stop,Reason,NewState}
 %% normal termination clause
 handle_cast({create,DataList}, State) ->
-
+	
+	[{_,MyName}] = ets:lookup(general_info,myInfo),
+	
 	io:format("stoping all old fsms ~n"),
 	ObjList = ets:tab2list(general_info),
-	[gen_fsm:stop({global,H}) || {{_,H},_,_,_} <- ObjList],
+	[gen_fsm:stop({global,H}) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
 	ets:delete_all_objects(general_info),
+	
+	ets:insert(general_info,{myInfo,MyName}),
 
 	io:format("insert data: ~p~n",[DataList]),
 	ets:insert(general_info,DataList),
 	io:format("starting helicopters ~n"),
 	HeliList = ets:match(general_info,{{heli,'$1'},'$2','$3','_'}),
-	[heli:start([Name,X,Y]) || [Name,X,Y] <- HeliList],
-	io:format("starting fires ~n"),
+	[heli:start(Name,X,Y) || [Name,X,Y] <- HeliList],
 	FireList = ets:match(general_info,{{fire,'$1'},'$2','$3','$4'}),
-	[fire:start([Name,X,Y,R]) || [Name,X,Y,R] <- FireList],
+	io:format("starting fires ~p~n",[FireList]),
+	[fire:start(Name,MyName,R,X,Y) || [Name,R,X,Y] <- FireList],
 	io:format("starting sensors ~n"),
 	SenList = ets:match(general_info,{{sensor,'$1'},'$2','$3','$4'}),
-	[sensor:start([Name,X,Y,R]) || [Name,X,Y,R] <- SenList],
+	[sensor:start(Name,MyName) || [Name,_,_,_] <- SenList],
     {noreply, State};
 	
 handle_cast({start_sim}, State) ->
@@ -107,25 +114,26 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 	case Unit_Type of
 		heli -> [Name,X,Y,Status]=Unit_Data,	io:format("updating helicopter: ~p~n",[Name]),
 				ets:insert(general_info,{{heli,Name},X,Y,Status});
-		fire -> [Name,XF,YF,RF]=Unit_Data,		io:format("updating fire: ~p~n",[Name]),
-				ets:insert(general_info,{{fire,Name},XF,YF,RF}),
+		fire -> [Name,RF]=Unit_Data,		%io:format("updating fire: ~p~n",[Name]),
+				[{{fire,_},_,XF,YF}] = ets:lookup(general_info,{fire,Name}),
+				ets:insert(general_info,{{fire,Name},RF,XF,YF}),
 				
 				%%send alerts to all servers
-				QH = qlc:q([{SName} || {{sensor,SName},XS,YS,RS} <- ets:table(general_info), ((XF-XS)*(XF-XS) + (YF-YS)*(YF-YS))< (RS+RF)*(RS+RF)]),
+				QH = qlc:q([SName || {{sensor,SName},RS,XS,YS} <- ets:table(general_info), ((XF-XS)*(XF-XS) + (YF-YS)*(YF-YS))< (RS+RF)*(RS+RF)]),
 
 				case qlc:eval(QH) of
 					[] -> dont_care;
-					SensorList -> [ sensor:send_alert(Sen,Name) || Sen <- SensorList]
+					SensorList -> [ sensor:new_alert(Sen,Name) || Sen <- SensorList]%, io:format("sensor activated ~p~n",[SensorList])
 				end
 	end,
 	{noreply, State};	
 	
 handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 	
-	io:format("requesting heli ~n"),
+	%io:format("requesting heli ~n"),
 	Exists = ets:member(sen_fire,{Sen_name,Fire_Name}),
 	case Exists of
-		true -> do_nothing, io:format("heli already sent ~n");
+		true -> do_nothing;%, io:format("heli already sent ~n");
 		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(general_info)]),
 
 				   case qlc:eval(QH)  of
@@ -134,7 +142,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 										  ets:insert(general_info,{{heli,Name},X,Y,working}),
 										  [{{_,_},SX,SY,SR}] = ets:lookup(general_info,{sensor,Sen_name}),
 										  io:format("sending heli ~p~n",[Name]),
-										  heli:move_dst(SX+SR,SY,search_fire)
+										  heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
 				   end
 	end,
 	
@@ -161,6 +169,8 @@ handle_info(_Message, _Server) ->
 
 %% Server termination
 terminate(_Reason, _Server) -> 
+	ObjList = ets:tab2list(general_info),
+	[gen_fsm:stop({global,H}) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
     io:format("Generic termination handler: '~p' '~p'~n",[_Reason, _Server]).
 
 

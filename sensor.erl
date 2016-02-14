@@ -11,7 +11,7 @@
 -export([init/1,idle/2,idle/3,working/2,working/3, handle_event/3,
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
--export([start_sim/1,send_alert/2]).
+-export([start_sim/1,new_alert/2]).
  
 %%-define(SERVER, ?MODULE).
  
@@ -31,13 +31,14 @@
 %% @end
 %%--------------------------------------------------------------------
 start(Name,Local_gen_name) ->
-    gen_fsm:start({global, Name}, ?MODULE, [Local_gen_name,Name], []).
+    gen_fsm:start({global, Name}, ?MODULE, [Name,Local_gen_name], []).
 
 start_sim(Name) ->
   gen_fsm:send_event({global, Name}, {start_sim}).
 	
-send_alert(Name,FireName) ->
-  gen_fsm:send_event({global, Name}, {send_alert,FireName}).
+new_alert(Name,FireName) ->
+	%io:format("sending alert to sensor ~p~n",[Name]),
+  gen_fsm:send_event({global, Name}, {new_alert,FireName}).
  
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -56,12 +57,12 @@ send_alert(Name,FireName) ->
 %%                     {stop, StopReason}
 %% @end
 %%--------------------------------------------------------------------
-init([ServerName,SensorName]) ->
-	ets:new(active_fire,[set,named_table]),
-	ets:insert(active_fire,{serverName,ServerName}),
-	ets:insert(active_fire,{myName,SensorName}),
-	io:format("started sensor ~p~n",[SensorName]),
-    {ok, idle, {}}.
+init([SensorName,ServerName]) ->
+	Ets=ets:new(active_fire,[set]),
+	ets:insert(Ets,{serverName,ServerName}),
+	ets:insert(Ets,{myName,SensorName}),
+	io:format("started sensor ~p~n",[ets:tab2list(Ets)]),
+    {ok, idle, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -87,11 +88,13 @@ idle({start_sim}, State) ->
 idle(_Event, State) ->
   {next_state, idle, State}.
   
-working({send_alert,FireName}, State) ->
-	ets:insert(active_fire,{FireName,on}),
+working({new_alert,FireName}, State) ->
+	%io:format("alert receive for: ~p~n",[FireName]),
+	ets:insert(State,{FireName,on}),
 	{next_state, working, State};
 	
 working(_Event, State) ->
+	io:format("shit happens ~n"),
   {next_state, working, State}.
  
 %%--------------------------------------------------------------------
@@ -172,15 +175,21 @@ handle_sync_event(_Event, _From, StateName, State) ->
 %%--------------------------------------------------------------------
 handle_info(check_alert, StateName, State) ->
 
-	QH = qlc:q([Fire || {Fire,on} <- ets:table(active_fire), Fire /=serverName, Fire /=myName]),
+	%io:format("current fires= ~p~n",[ets:tab2list(State)]),
 
-	[{_,Gen}] = ets:lookup(active_fire,{serverName}),
-	[{_,Sen}] = ets:lookup(active_fire,{myName}),
+	QH = qlc:q([Fire || {Fire,on} <- ets:table(State), Fire /=serverName, Fire /=myName]),
+	
+	[{_,Gen}] = ets:lookup(State,serverName),
+	[{_,Sen}] = ets:lookup(State,myName),
     case qlc:eval(QH)  of
 		[] -> no_alerts;
 		FireList -> [ unit_server:heli_request(Gen,Sen,Name) ||Name <- FireList]
 	end,
-	ets:remove_all_objects(active_fire),
+	ets:delete_all_objects(State),
+	
+	ets:insert(State,{serverName,Gen}),
+	ets:insert(State,{myName,Sen}),
+	
     {next_state, StateName, State};
 
 handle_info(_Info, StateName, State) ->

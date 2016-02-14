@@ -3,7 +3,7 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/4]).
+-export([start/5]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,fire_out/2,fire_out/3, handle_event/3,
@@ -28,8 +28,8 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start(Name,Radius,X,Y) ->
-    gen_fsm:start({global, Name}, ?MODULE, [Radius,X,Y], []).
+start(Name,ServerName,Radius,X,Y) ->
+    gen_fsm:start({global, Name}, ?MODULE, [Name,ServerName,Radius,X,Y], []).
  
 start_sim(Name) ->
   gen_fsm:send_event({global, Name}, {increase}).
@@ -63,15 +63,15 @@ merge(Name) ->
 %%                     {stop, StopReason}
 %% @end
 %%--------------------------------------------------------------------
-init([StartRadius,X,Y]) ->
-	ets:new(firedata,[set,named_table]),
-	ets:insert(firedata,{radius,StartRadius}),
-	ets:insert(firedata,{x,X}),
-	ets:insert(firedata,{y,Y}),
-	ets:insert(firedata,{sensors,[]}), 	  %%????????????
-	ets:insert(firedata,{helicopters,[]}),	  %%????????????
+init([Name,ServerName,StartRadius,X,Y]) ->
+	Ets = ets:new(firedata,[set]),
+	ets:insert(Ets,{radius,StartRadius}),
+	ets:insert(Ets,{x,X}),
+	ets:insert(Ets,{y,Y}),
+	ets:insert(Ets,{myName,Name}),
+	ets:insert(Ets,{serverName,ServerName}),
 	io:format("started fire with radius = ~p~n",[StartRadius]),
-    {ok, idle, {}}.
+    {ok, idle, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -92,19 +92,22 @@ idle({increase}, State) ->
   {next_state, idle, State,100};
   
 idle(timeout, State) ->
-	[{_,Radius}] = ets:lookup(firedata,radius),
+	[{_,Radius}] = ets:lookup(State,radius),
 	NewRad = Radius + 0.3,
-	ets:insert(firedata,{radius,NewRad}),
-	%io:format("new Radius = ~p~n",[NewRad]),
+	ets:insert(State,{radius,NewRad}),
+	[{_,MyName}] = ets:lookup(State,myName),
+	[{_,ServerName}] = ets:lookup(State,serverName),
+	unit_server:update(ServerName,fire,[MyName,NewRad]),
+	%io:format("Fire ~p, new Radius = ~p~n",[MyName,NewRad]),
 	{next_state, idle, State,100};
 	
 idle({decrease}, State) ->
-	[{_,Radius}] = ets:lookup(firedata,radius),
+	[{_,Radius}] = ets:lookup(State,radius),
 	case Radius -0.5 =<0 of
 		true -> NewRad=0;
 		false -> NewRad = Radius - 0.5
 	end,
-	ets:insert(firedata,{radius,NewRad}),
+	ets:insert(State,{radius,NewRad}),
 	%io:format("new Radius = ~p~n",[NewRad]),
 	case NewRad == 0 of
 		true -> io:format("fire extinguished~n"),
@@ -115,22 +118,6 @@ idle({decrease}, State) ->
 idle({merge}, State) ->
 	%%TODO pass all sensors and helis to the bigger fire
   {next_state, fire_out, State};
-  
-idle({update_sensor,Sens,Command}, State)  ->
-	case Command of
-		add -> add_to_ets(sensors,Sens);
-		delete -> delete_from_ets(sensors,Sens)
-	end,
-	io:format("new ets = ~p~n", [ets:tab2list(firedata)]),
-  {next_state, idle, State,1000};
-  
-idle({update_heli,Heli,Command}, State) ->
-	case Command of
-		add ->	add_to_ets(helicopters,Heli);
-		delete -> delete_from_ets(helicopters,Heli)
-	end,
-	io:format("new ets = ~p~n", [ets:tab2list(firedata)]),
-  {next_state, idle, State,1000};
 
 idle(_Event, State) ->
   {next_state, idle, State}.

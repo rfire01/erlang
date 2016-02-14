@@ -132,16 +132,8 @@ move_destination(timeout,{M,N,DstX,DstY,Objective}) ->
 	end;
 	
 move_destination(_Event, State) ->
-  {next_state, move_destination, State}.
+  {next_state, move_destination, State,100}.
   
-%search_circle(timeout,{R,CX,CY,Quarter}) -> 
-	%[{_,CurrentX}] = ets:lookup(cord,x),
-	%NewQuarter = step_circle(CurrentX,CX,CY,R,Quarter),
-	%case NewQuarter == 5 of 
-	%	true -> io:format("finished circle~n"),
-	%			{next_state,idle,{}};
-	%	false -> {next_state,search_circle,{R,CX,CY,NewQuarter},100}
-	%end;
 
 search_circle(timeout,{R,CX,CY,Angle}) -> 
 	%[{_,CurrentX}] = ets:lookup(cord,x),
@@ -344,26 +336,6 @@ step_dest(X,Y,M,N,DstX,DstY) ->
 	ets:insert(cord,{y,NewY}),
 	io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]),
 	((abs(DstX - X) == 0) and (abs(DstY - Y) == 0)).
-	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-step_circle(X,CX,CY,R,Quarter) -> 
-	Step = R /20,
-	case ((Quarter == 1) or (Quarter == 4)) of 
-		true -> NewX = max(min(X + Step,CX+R),CX-R),
-				NewY = CY + math:sqrt(R * R - (CX - NewX) * (CX - NewX));
-		false -> NewX = max(min(X - Step,CX+R),CX-R),
-				 NewY = CY - math:sqrt(R * R - (CX - NewX) * (CX - NewX))
-	end,
-	case (NewX == CX) or (abs(NewY - CY) < R / 200) of
-		true -> NewQuarter = Quarter +1;
-		false -> NewQuarter = Quarter
-	end,
-	ets:insert(cord,{x,NewX}),
-	ets:insert(cord,{y,NewY}),
-	%Debug = math:sqrt( (NewX-CX) * (NewX-CX) + (NewY-CY) * (NewY-CY)),
-	io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]), %distance from circle = ~p~n",[NewX,NewY,Debug]),
-	NewQuarter.
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

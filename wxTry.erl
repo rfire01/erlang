@@ -272,7 +272,7 @@ add_units_to_screen(EtsName,Paint) ->
 	
 add_unit_to_screen([X,Y],Paint) ->
 	
-	Image1 = wxImage:new("4.jpg"),
+	Image1 = wxImage:new("4.png"),
 	Image2 = wxImage:scale(Image1, 100,100),
 	%%%%%%%%%%%%%%%%%%%%Image5 = wxImage:rotate(Image4, Angle, {200,200}),
 	Bmp = wxBitmap:new(Image2),	

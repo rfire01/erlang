@@ -1,11 +1,4 @@
-%%====================================================================
-%%
-%% @author Juanse Perez Herrero <juanseph@gmail.com> [http://bytefilia.com]
-%% @copyright CC Attribution - 2013
-%%
-%% A sample otp gen_server template
-%%
-%%====================================================================
+
 -module(unit_server).
 -behaviour(gen_server).
 
@@ -14,9 +7,11 @@
 		 start_sim/1]).
     
 % gen_server callbacks
+
 -export([init/1,handle_call/3,handle_cast/2,
          handle_info/2,terminate/2, code_change/3]).
 		 
+
 
 %%====================================================================
 %% Server interface
@@ -161,8 +156,20 @@ terminate(_Reason, _Server) ->
 
 
 %% Code change
+<<<<<<< HEAD
 code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.    
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 	
+=======
+code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.   
+
+
+
+update(Unit_type,Unit_data) ->
+    io:format("update ~p:~p~n",[Unit_type,Unit_data]).
+    %%process_flag(trap_exit, true),
+    %%ets:new(genral,[set,named_table]),
+   %% {ok, initialized}.
+>>>>>>> 099a4a13f5a8d92841b344f06b9dd88319af61b5

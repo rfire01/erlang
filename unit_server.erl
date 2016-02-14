@@ -10,20 +10,35 @@
 -behaviour(gen_server).
 
 % interface calls
--export([start/1]).
+-export([start/1,create/1,update/2,heli_request/2,heli_done/1,
+		 start_sim/1]).
     
 % gen_server callbacks
 -export([init/1,handle_call/3,handle_cast/2,
          handle_info/2,terminate/2, code_change/3]).
 		 
--define(SERVER, ?MODULE).
 
 %%====================================================================
 %% Server interface
 %%====================================================================
 %% Booting server (and linking to it)
-start() -> 
-    gen_server:start({local, ?SERVER}, ?MODULE, [], []).
+start(GenName) -> 
+    gen_server:start({global, GenName}, ?MODULE, [], []).
+	
+start_sim(GenName) -> 
+    gen_server:cast({global, GenName}, {start_sim}).
+	
+create(GenName,Data) -> 
+    gen_server:cast({global, GenName}, {create,Data}).
+	
+update(GenName,Type,Data) -> 
+    gen_server:cast({global, GenName}, {update,Type,Data}).
+	
+heli_request(GenName,Sname,Fname) -> 
+    gen_server:cast({global, GenName}, {heli_request,Sname,Fname}).
+	
+heli_done(GenName,Name) -> 
+    gen_server:cast({global, GenName}, {heli_done,Name}).
 
 
 %%====================================================================
@@ -74,6 +89,16 @@ handle_cast({create,DataList}, State) ->
 	[sensor:start([Name,X,Y,R]) || [Name,X,Y,R] <- SenList],
     {noreply, State};
 	
+handle_cast({start_sim}, State) ->
+	io:format("starting simulation ~n"),
+	HeliList = ets:match(general_info,{{heli,'$1'},'$2','$3','_'}),
+	[heli:start_sim() || [Name,X,Y] <- HeliList],
+	FireList = ets:match(general_info,{{fire,'$1'},'$2','$3','$4'}),
+	[fire:start_sim() || [Name,X,Y,R] <- FireList],
+	HeliList = ets:match(general_info,{{sensor,'$1'},'$2','$3','$4'}),
+	[sensor:start_sim() || [Name,X,Y,R] <- SenList],
+	{noreply, State};
+	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
 	case Unit_Type of
 		heli -> [Name,X,Y,Status]=Unit_Data,	io:format("updating helicopter: ~p~n",[Name]),
@@ -82,11 +107,11 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 				ets:insert(general_info,{{fire,Name},XF,YF,RF}),
 				
 				%%send alerts to all servers
-				QH = qlc:q([{SName,X,Y,R} || {{sensor,SName},XS,YS,RS} <- ets:table(general_info), ((XF-XS)*(XF-XS) + (YF-YS)*(YF-YS))< (RS+RF)*(RS+RF)]),
+				QH = qlc:q([{SName} || {{sensor,SName},XS,YS,RS} <- ets:table(general_info), ((XF-XS)*(XF-XS) + (YF-YS)*(YF-YS))< (RS+RF)*(RS+RF)]),
 
-				case qlc:eval(QH) == [] of
-					true -> dont_care;
-					false -> send_alerts(SensorList) %% TODO
+				case qlc:eval(QH) of
+					[] -> dont_care;
+					SensorList -> [ sensor:send_alert(Sen) || Sen <- SensorList]
 				end
 	end,
 	{noreply, State};	
@@ -137,3 +162,7 @@ terminate(_Reason, _Server) ->
 
 %% Code change
 code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.    
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+	

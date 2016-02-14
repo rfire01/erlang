@@ -1,15 +1,17 @@
 -module(sensor).
  
+-include_lib("stdlib/include/qlc.hrl").
+ 
 -behaviour(gen_fsm).
  
 %% API
--export([start/4]).
+-export([start/2]).
  
 %% gen_fsm callbacks
--export([init/1,idle/2,idle/3, handle_event/3,
+-export([init/1,idle/2,idle/3,working/2,working/3, handle_event/3,
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
--export([check_alarm/4,handling_fire/1,alarm_off/4]).
+-export([start_sim/1,send_alert/2]).
  
 %%-define(SERVER, ?MODULE).
  
@@ -28,17 +30,14 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start(Name,Radius,X,Y) ->
-    gen_fsm:start({global, Name}, ?MODULE, [Radius,X,Y], []).
- 
-check_alarm(Name,X,Y,R) ->
-  gen_fsm:send_event({global, Name}, {check_alarm,Name,X,Y,R}).
-  
-handling_fire(Name) ->
-  gen_fsm:send_event({global, Name}, {handling_fire,Name}).
-  
-alarm_off(Name,X,Y,R) ->
-  gen_fsm:send_event({global, Name}, {alarm_off,Name,X,Y,R}).
+start(Name,Local_gen_name) ->
+    gen_fsm:start({global, Name}, ?MODULE, [Local_gen_name,Name], []).
+
+start_sim(Name) ->
+  gen_fsm:send_event({global, Name}, {start_sim}).
+	
+send_alert(Name,FireName) ->
+  gen_fsm:send_event({global, Name}, {send_alert,FireName}).
  
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -57,13 +56,11 @@ alarm_off(Name,X,Y,R) ->
 %%                     {stop, StopReason}
 %% @end
 %%--------------------------------------------------------------------
-init([StartRadius,X,Y]) ->
-	ets:new(sensdata,[set,named_table]),
-	ets:insert(sensdata,{radius,StartRadius}),
-	ets:insert(sensdata,{x,X}),
-	ets:insert(sensdata,{y,Y}),
-	ets:insert(sensdata,{fires,[]}),
-	io:format("started sensor at (~p,~p) with radius = ~p~n",[X,Y,StartRadius]),
+init([ServerName,SensorName]) ->
+	ets:new(active_fire,[set,named_table]),
+	ets:insert(active_fire,{serverName,ServerName}),
+	ets:insert(active_fire,{myName,SensorName}),
+	io:format("started sensor ~p~n",[SensorName]),
     {ok, idle, {}}.
  
 %%--------------------------------------------------------------------
@@ -82,35 +79,20 @@ init([StartRadius,X,Y]) ->
 %% @end
 %%--------------------------------------------------------------------
 
-idle({check_alarm,FireName,FireX,FireY,FireRad}, State) ->
-	[{_,Radius}] = ets:lookup(sensdata,radius),
-	[{_,X}] = ets:lookup(sensdata,x),
-	[{_,Y}] = ets:lookup(sensdata,y),
-	Dist = math:sqrt( (X-FireX) * (X-FireX) + (Y-FireY) * (Y-FireY)),
-	[{_,FireList}] = ets:lookup(sensdata,fires),
-	case (Dist < Radius + FireRad) and (lists:member(FireName,FireList)==false)  of
-		true -> io:format("request heli~n");
-		false -> io:format("alarm isn't activated or alarm already on~n")
-	end,
-	{next_state, idle, State};
-	
-idle({handling_fire,FireName}, State) ->
-	add_to_ets(fires,FireName),
-	{next_state, idle, State};
-	
-idle({alarm_off,FireName,FireX,FireY,FireRad}, State) ->
-	[{_,Radius}] = ets:lookup(sensdata,radius),
-	[{_,X}] = ets:lookup(sensdata,x),
-	[{_,Y}] = ets:lookup(sensdata,y),
-	Dist = math:sqrt( (X-FireX) * (X-FireX) + (Y-FireY) * (Y-FireY)),
-	case (Dist > Radius + FireRad) of
-		true -> delete_from_ets(fires,FireName);
-		false -> io:format("fire still in sensor area~n")
-	end,
-	{next_state, idle, State};
+idle({start_sim}, State) ->
+	Self = self(),
+	spawn(fun() -> loop(Self) end), 
+	{next_state, working, State};
 
 idle(_Event, State) ->
   {next_state, idle, State}.
+  
+working({send_alert,FireName}, State) ->
+	ets:insert(active_fire,{FireName,on}),
+	{next_state, working, State};
+	
+working(_Event, State) ->
+  {next_state, working, State}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -134,6 +116,10 @@ idle(_Event, State) ->
 idle(_Event, _From, State) ->
   Reply = {error, invalid_message},
   {reply, Reply, idle, State}.
+  
+working(_Event, _From, State) ->
+  Reply = {error, invalid_message},
+  {reply, Reply, working, State}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -184,6 +170,19 @@ handle_sync_event(_Event, _From, StateName, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
+handle_info(check_alert, StateName, State) ->
+
+	QH = qlc:q([Fire || {Fire,on} <- ets:table(active_fire), Fire /=serverName, Fire /=myName]),
+
+	[{_,Gen}] = ets:lookup(active_fire,{serverName}),
+	[{_,Sen}] = ets:lookup(active_fire,{myName}),
+    case qlc:eval(QH)  of
+		[] -> no_alerts;
+		FireList -> [ unit_server:heli_request(Gen,Sen,Name) ||Name <- FireList]
+	end,
+	ets:remove_all_objects(active_fire),
+    {next_state, StateName, State};
+
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
  
@@ -228,3 +227,7 @@ add_to_ets(KeyName,Value) ->
 		false -> ets:insert(sensdata,{KeyName,[Value|List]});
 		true -> already_exists
 	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+loop(Pid) -> receive after 1000 -> Pid ! check_alert end, loop(Pid).

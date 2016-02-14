@@ -1,24 +1,32 @@
-
+%%====================================================================
+%%
+%% @author Juanse Perez Herrero <juanseph@gmail.com> [http://bytefilia.com]
+%% @copyright CC Attribution - 2013
+%%
+%% A sample otp gen_server template
+%%
+%%====================================================================
 -module(unit_server).
+
+-include_lib("stdlib/include/qlc.hrl").
+
 -behaviour(gen_server).
 
 % interface calls
--export([start/1,create/1,update/2,heli_request/2,heli_done/1,
+-export([start/1,create/2,update/3,heli_request/3,heli_done/2,
 		 start_sim/1]).
     
 % gen_server callbacks
-
 -export([init/1,handle_call/3,handle_cast/2,
          handle_info/2,terminate/2, code_change/3]).
 		 
-
 
 %%====================================================================
 %% Server interface
 %%====================================================================
 %% Booting server (and linking to it)
 start(GenName) -> 
-    gen_server:start({global, GenName}, ?MODULE, [], []).
+    gen_server:start({global, GenName}, ?MODULE, [GenName], []).
 	
 start_sim(GenName) -> 
     gen_server:cast({global, GenName}, {start_sim}).
@@ -39,9 +47,10 @@ heli_done(GenName,Name) ->
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
-init([]) ->
-    io:format("starting local_gen: ~p~n",[?SERVER]),
+init([Name]) ->
+    io:format("starting local_gen: ~p~n",[Name]),
 	ets:new(general_info,[set,named_table]),
+	ets:insert(general_info,{myInfo,Name}),
 	ets:new(sen_fire,[set,named_table]),
     {ok, initialized}.
 
@@ -80,18 +89,18 @@ handle_cast({create,DataList}, State) ->
 	FireList = ets:match(general_info,{{fire,'$1'},'$2','$3','$4'}),
 	[fire:start([Name,X,Y,R]) || [Name,X,Y,R] <- FireList],
 	io:format("starting sensors ~n"),
-	HeliList = ets:match(general_info,{{sensor,'$1'},'$2','$3','$4'}),
+	SenList = ets:match(general_info,{{sensor,'$1'},'$2','$3','$4'}),
 	[sensor:start([Name,X,Y,R]) || [Name,X,Y,R] <- SenList],
     {noreply, State};
 	
 handle_cast({start_sim}, State) ->
 	io:format("starting simulation ~n"),
-	HeliList = ets:match(general_info,{{heli,'$1'},'$2','$3','_'}),
-	[heli:start_sim() || [Name,X,Y] <- HeliList],
-	FireList = ets:match(general_info,{{fire,'$1'},'$2','$3','$4'}),
-	[fire:start_sim() || [Name,X,Y,R] <- FireList],
-	HeliList = ets:match(general_info,{{sensor,'$1'},'$2','$3','$4'}),
-	[sensor:start_sim() || [Name,X,Y,R] <- SenList],
+	HeliList = ets:match(general_info,{{heli,'$1'},'_','_','_'}),
+	[heli:start_sim(Name) || [Name] <- HeliList],
+	FireList = ets:match(general_info,{{fire,'$1'},'_','_','_'}),
+	[fire:start_sim(Name) || [Name] <- FireList],
+	SenList = ets:match(general_info,{{sensor,'$1'},'_','_','_'}),
+	[sensor:start_sim(Name) || [Name] <- SenList],
 	{noreply, State};
 	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
@@ -106,7 +115,7 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 
 				case qlc:eval(QH) of
 					[] -> dont_care;
-					SensorList -> [ sensor:send_alert(Sen) || Sen <- SensorList]
+					SensorList -> [ sensor:send_alert(Sen,Name) || Sen <- SensorList]
 				end
 	end,
 	{noreply, State};	
@@ -116,8 +125,8 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 	io:format("requesting heli ~n"),
 	Exists = ets:member(sen_fire,{Sen_name,Fire_Name}),
 	case Exists of
-		true -> do_nothing, io:format("heli already sent ~n"),;
-		false ->  QH = qlc:q([{{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(general_info)]),
+		true -> do_nothing, io:format("heli already sent ~n");
+		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(general_info)]),
 
 				   case qlc:eval(QH)  of
 						[]-> wait_for_free_heli;
@@ -127,7 +136,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 										  io:format("sending heli ~p~n",[Name]),
 										  heli:move_dst(SX+SR,SY,search_fire)
 				   end
-	end
+	end,
 	
 	{noreply, State};	
 					
@@ -156,20 +165,8 @@ terminate(_Reason, _Server) ->
 
 
 %% Code change
-<<<<<<< HEAD
 code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.    
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 	
-=======
-code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.   
-
-
-
-update(Unit_type,Unit_data) ->
-    io:format("update ~p:~p~n",[Unit_type,Unit_data]).
-    %%process_flag(trap_exit, true),
-    %%ets:new(genral,[set,named_table]),
-   %% {ok, initialized}.
->>>>>>> 099a4a13f5a8d92841b344f06b9dd88319af61b5

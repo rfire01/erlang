@@ -10,7 +10,7 @@
 		search_circle/2, search_circle/3,
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
--export([start_move/1,move_dst/4,move_circle/2]).
+-export([start_sim/1,move_dst/4,move_circle/2]).
  
 %%-define(SERVER, ?MODULE).
 -define(MAXX, 1200).
@@ -36,7 +36,7 @@
 start(Name) ->
     gen_fsm:start({global, Name}, ?MODULE, [], []).
  
-start_move(Name) ->
+start_sim(Name) ->
   gen_fsm:send_event({global,Name}, {idle_move}).
   
 move_dst(Name,X,Y,Objective) ->

@@ -31,8 +31,8 @@ start(GenName) ->
 start_sim(GenName) -> 
     gen_server:cast({global, GenName}, {start_sim}).
 	
-create(GenName,_Data1) -> 
-	Data = [{{sensor,sensor1},10,10,10},{{fire,fire1},1,30,10},{{heli,heli1},7,85,not_working}],%[ {{heli,heli1},7,85,not_working},{{heli,heli2},800,45,not_working},{{heli,heli3},180,340,not_working},
+create(GenName,Data) -> 
+	%Data = [{{sensor,sensor1},10,10,10},{{fire,fire1},1,30,10},{{heli,heli1},7,85,not_working}],%[ {{heli,heli1},7,85,not_working},{{heli,heli2},800,45,not_working},{{heli,heli3},180,340,not_working},
 			% {{fire,fire1},7,85,50},{{fire,fire2},800,123,50},{{fire,fire3},12,230,50},
 			 %{{sensor,sensor1},14,47,10},{{sensor,sensor2},314,147,10},{{sensor,sensor3},140,470,10}],
     gen_server:cast({global, GenName}, {create,Data}).
@@ -66,6 +66,9 @@ init([Name]) ->
 % {noreply,NewState,hibernate}
 % {stop,Reason,Reply,NewState} 
 % {stop,Reason,NewState}
+handle_call({wx_request}, _From, State) -> 
+	{reply,ets:tab2list(general_info),State};
+
 handle_call(Message, From, State) -> 
     io:format("Generic call handler: '~p' from '~p' while in '~p'~n",[Message, From, State]),
     {reply, ok, State}.

@@ -1,6 +1,7 @@
 -module(wxTry).
 
 -include_lib("wx/include/wx.hrl").
+-include_lib("stdlib/include/qlc.hrl").
 
 -behaviour(wx_object).
 -export([start/0, init/1, terminate/2,  code_change/3,
@@ -38,6 +39,9 @@ init(Server) ->
         wx:batch(fun() -> do_init(Server) end).
 
 do_init(Server) ->
+	%%----------- init local servers (for each part of screen)
+	unit_server:start(full),
+
     Frame = wxFrame:new(Server, -1, "wx test sim", [{size,{?Horizontal, ?Vertical}}]),		%%create frame for the simulator
 	Panel  = wxPanel:new(Frame,[{style, ?wxFULL_REPAINT_ON_RESIZE}]),						%%create panel from the frame
 	wxFrame:show(Frame),																	%%show the frame on the screen	
@@ -60,11 +64,11 @@ do_init(Server) ->
 	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{210,22}}]),
 	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{480,22}}]),
 	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{720,22}}]),
-	Heli=wxTextCtrl:new(Panel, 101,[{value, "5"},{pos,{340,18}}]), %set default value
-    Fire=wxTextCtrl:new(Panel, 102,[{value, "5"},{pos,{580,18}}]),
-	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{830,18}}]),
+	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{340,18}}]), %set default value
+    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{580,18}}]),
+	Sens=wxTextCtrl:new(Panel, 103,[{value, "1"},{pos,{830,18}}]),
 	
-	ets:new(simData,[bag,public,named_table]),
+	ets:new(simData,[set,public,named_table]),
 	%ets:insert(simData,{heli,[]}),
 	%ets:insert(simData,{fire,[]}),
 	%ets:insert(simData,{sens,[]}),
@@ -113,8 +117,8 @@ do_init(Server) ->
 					wxBufferedPaintDC:destroy(Paint) end,					
 	wxFrame:connect(Panel, paint, [{callback,OnPaint}]),%%connect paint event to panel with callbakc function OnPaint
 	
-	%S=self(),
-	%spawn_link(fun() -> loop(S) end),
+	S=self(),
+	spawn_link(fun() -> loop(S) end),
 	
 	{Panel, State}.
 
@@ -126,17 +130,7 @@ do_init(Server) ->
 handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
 	io:format("randomizing units coordinates ~p~n",[Ev]),
 	
-	try ets:delete( State#state.ets_name) of
-		_ -> ets:new(State#state.ets_name,[bag,public,named_table])
-			 %ets:insert(State#state.ets_name,{heli,[]}),
-			 %ets:insert(State#state.ets_name,{fire,[]}),
-			 %ets:insert(State#state.ets_name,{sens,[]})
-	catch  
-	error:_Why -> ets:new(State#state.ets_name,[bag,public,named_table])
-			 %ets:insert(State#state.ets_name,{heli,[]}),
-			 %ets:insert(State#state.ets_name,{fire,[]}),
-			 %ets:insert(State#state.ets_name,{sens,[]}) 
-	end,
+	ets:delete_all_objects(State#state.ets_name),
 	
 	HeliTxt = wxTextCtrl:getValue(State#state.heli_amount),
 	FireTxt = wxTextCtrl:getValue(State#state.fire_amount),
@@ -159,9 +153,9 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
 	case Valid == true of
 		true -> random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(heli,HeliNum,State#state.ets_name),
-				random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
+				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(fire,FireNum,State#state.ets_name),
-				random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
+				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(sensor,SenNum,State#state.ets_name),
 				io:format("ets = ~p~n",[ets:tab2list(State#state.ets_name)]);
 		false -> io:format("please enter NUMBERS into amount of units~n")
@@ -170,6 +164,8 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
 	Pid = State#state.self,
 	Pid ! refresh,
 	
+	unit_server:create(full,ets:tab2list(State#state.ets_name)),
+	
     {noreply,State};
 	
 %when start button clicked, starting simulation:
@@ -177,6 +173,7 @@ handle_event(Ev=#wx{id=10,event = #wxCommand{type = command_button_clicked}},Sta
 	io:format("starting simulation ~p~n",[Ev]),
 	
 	wxButton:disable(State#state.random_but),
+	unit_server:start_sim(full),
 	
     {noreply,State};
 
@@ -186,7 +183,10 @@ handle_event(Ev = #wx{}, State = #state{}) ->
 
 %% Callbacks handled as normal gen_server callbacks
 
-handle_info(refresh,State)->
+handle_info(refresh,State=#state{})->
+	Updated_list = gen_server:call({global,full},{wx_request}),
+	ets:delete_all_objects(State#state.ets_name),
+	ets:insert(State#state.ets_name,Updated_list),
 	wxWindow:refresh(State#state.parent,[{eraseBackground,false}]),
 	{noreply,State};
 
@@ -207,6 +207,7 @@ code_change(_, _, State) ->
     {stop, ignore, State}.
 
 terminate(_Reason, _State) ->
+	gen_server:stop({global,full}),
     ok.
 	  
   
@@ -214,7 +215,7 @@ terminate(_Reason, _State) ->
 %%% Internal functions
 %%%===================================================================
 
-loop(Pid) -> receive after 20 -> Pid ! refresh end, loop(Pid).
+loop(Pid) -> receive after 30 -> Pid ! refresh end, loop(Pid).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -236,7 +237,7 @@ randUnit(_,0,_) -> ok;
 randUnit(heli,Amount,EtsName) ->
 	X = random:uniform(?Horizontal-200)+100,
 	Y  = random:uniform(?Vertical-200)+100,
-	HeliData = {heli,list_to_atom("heli" ++ integer_to_list(Amount)),X,Y,not_working},
+	HeliData = {{heli,list_to_atom("heli" ++ integer_to_list(Amount))},X,Y,not_working},
 	%add_to_ets(heli,HeliData,EtsName),
 	ets:insert(EtsName,HeliData),
 	randUnit(heli,Amount-1,EtsName);
@@ -244,15 +245,15 @@ randUnit(heli,Amount,EtsName) ->
 randUnit(fire,Amount,EtsName) ->
 	X = random:uniform(?Horizontal-100)+50,
 	Y  = random:uniform(?Vertical-100)+50,
-	FireData = {fire,list_to_atom("fire" ++ integer_to_list(Amount)),X,Y,?FireDefaultRadius},
+	FireData = {{fire,list_to_atom("fire" ++ integer_to_list(Amount))},?FireDefaultRadius,X,Y},
 	%add_to_ets(fire,FireData,EtsName),
 	ets:insert(EtsName,FireData),
 	randUnit(fire,Amount-1,EtsName);
 
 randUnit(sensor,Amount,EtsName) ->
-	X = random:uniform(?Horizontal),
-	Y  = random:uniform(?Vertical),
-	SensorData = {sens,list_to_atom("sensor" ++ integer_to_list(Amount)),X,Y,?SensorRadius},
+	X = random:uniform(?Horizontal-100)+50,
+	Y  = random:uniform(?Vertical-100)+50,
+	SensorData = {{sensor,list_to_atom("sensor" ++ integer_to_list(Amount))},?SensorRadius,X,Y},
 	%add_to_ets(sens,SensorData,EtsName),
 	ets:insert(EtsName,SensorData),
 	randUnit(sensor,Amount-1,EtsName).
@@ -261,16 +262,16 @@ randUnit(sensor,Amount,EtsName) ->
 
 add_units_to_screen(EtsName,Paint) ->
 		
-	FiresData = ets:match(EtsName,{fire,'_','$1','$2','$3'}),
-	[ add_unit_to_screen(Unit,Paint) || Unit <-FiresData],
+		
+	QH_fire = qlc:q([[R,X,Y] || {{fire,_},R,X,Y} <- ets:table(EtsName)]),
+	QH_heli = qlc:q([[X,Y] || {{heli,_},X,Y,_} <- ets:table(EtsName)]),
+	QH_sensor = qlc:q([[R,X,Y] || {{sensor,_},R,X,Y} <- ets:table(EtsName)]),
+
+	[ add_unit_to_screen(sensor,Unit,Paint) || Unit <- qlc:eval(QH_sensor)],
+	[ add_unit_to_screen(fire,Unit,Paint) || Unit <- qlc:eval(QH_fire)],
+	[ add_unit_to_screen(heli,Unit,Paint) || Unit <- qlc:eval(QH_heli)].
 	
-	HelicoptersData = ets:match(EtsName,{heli,'_','$1','$2','_'}),
-	[ add_unit_to_screen(Unit,Paint) || Unit <-HelicoptersData].
-	
-	%SensorsData = ets:match(EtsName,{sens,'_','$1','$2','$3'}),
-	%[ add_unit_to_screen(Unit) || Unit <-SensorsData].
-	
-add_unit_to_screen([X,Y],Paint) ->
+add_unit_to_screen(heli,[X,Y],Paint) ->
 	
 	Image1 = wxImage:new("4.png"),
 	Image2 = wxImage:scale(Image1, 100,100),
@@ -282,7 +283,7 @@ add_unit_to_screen([X,Y],Paint) ->
 	wxDC:drawBitmap(Paint, Bmp, {round(X)-100,round(Y)-100}),
 	wxBitmap:destroy(Bmp);
 	
-add_unit_to_screen([X,Y,R],Paint) ->
+add_unit_to_screen(fire,[R,X,Y],Paint) ->
 	Image1 = wxImage:new("fire_1.png"),
 	Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
 	%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
@@ -291,4 +292,7 @@ add_unit_to_screen([X,Y,R],Paint) ->
 	wxImage:destroy(Image2),
 	%%%%%%%%%%%%wxImage:destroy(Image51),
 	wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
-	wxBitmap:destroy(Bmp).
+	wxBitmap:destroy(Bmp);
+	
+add_unit_to_screen(sensor,[R,X,Y],Paint) ->
+	wxDC:drawCircle(Paint, {X,Y}, R).

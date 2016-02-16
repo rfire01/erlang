@@ -7,7 +7,7 @@
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,move_destination/2,move_destination/3, handle_event/3,
-		search_circle/2, search_circle/3,
+		search_circle/2, search_circle/3,extinguish/2,
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
 -export([start_sim/1,move_dst/4,move_circle/2]).
@@ -157,18 +157,40 @@ search_circle(timeout,{R,CX,CY,Angle,Ets}) ->
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,search_circle]),
 	step_circle(CX,CY,R,Angle,Ets),
-	case Angle == 360 of 
-		true -> io:format("finished circle~n"),
+	
+	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
+		false -> 
+		    case Angle == 360 of 
+			true -> io:format("finished circle~n"),
 				random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
-			    ets:insert(Ets,{xdif,(random:uniform() * 2 - 1)*10}),
-			    ets:insert(Ets,{ydif,(random:uniform() * 2 - 1)*10}),
+				ets:insert(Ets,{xdif,(random:uniform() * 2 - 1)*10}),
+				ets:insert(Ets,{ydif,(random:uniform() * 2 - 1)*10}),
 				{next_state,idle,Ets,?CLOCKSPEED};
-		false -> {next_state,search_circle,{R,CX,CY,Angle + 1,Ets},?CLOCKSPEED}
-	end;	
+			false -> {next_state,search_circle,{R,CX,CY,Angle + 1,Ets},?CLOCKSPEED}
+		    end;
+		    
+		[NF,RF,XF,YF] -> io:format("found fire [~p,~p,~p,~p]~n",[NF,RF,XF,YF]),
+			      {next_state,extinguish,{NF,RF,XF,YF,Ets},?CLOCKSPEED}
+	end;
+		
 
 	
 search_circle(_Event, Ets) ->
   {next_state, move_destination, Ets}.
+  
+extinguish(timeout,{N,R,X,Y,Ets}) -> 
+	[{_,CurrentX}] = ets:lookup(Ets,x),
+	[{_,CurrentY}] = ets:lookup(Ets,y),
+	[{_,MyName}]   = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,extinguish]),
+	case fire:extinguish_fire(N)of
+	    fire_alive-> io:format("fire_alive~n"),{next_state,extinguish,{N,R,X,Y,Ets},?CLOCKSPEED};
+	    fire_dead->  io:format("fire_dead~n"),{next_state, idle, Ets,?CLOCKSPEED}
+	end;
+	
+extinguish(_Event, Ets) ->
+  {next_state, extinguish, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -199,6 +221,10 @@ move_destination(_Event, _From, Ets) ->
 search_circle(_Event, _From, Ets) ->
   Reply = {error, invalid_message},
   {reply, Reply, search_circle, Ets}.
+  
+extinguish(_Event, _From, Ets) ->
+  Reply = {error, invalid_message},
+  {reply, Reply, extinguish, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private

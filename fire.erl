@@ -32,10 +32,10 @@ start(Name,ServerName,Radius,X,Y) ->
     gen_fsm:start({global, Name}, ?MODULE, [Name,ServerName,Radius,X,Y], []).
  
 start_sim(Name) ->
-  gen_fsm:send_event({global, Name}, {increase}).
+  gen_fsm:send_event({global, Name}, {start}).
   
 extinguish_fire(Name) ->
-  gen_fsm:send_event({global, Name}, {decrease}).
+  gen_fsm:sync_send_event({global, Name}, {decrease}).
   
 merge(Name) ->
   gen_fsm:send_event({global, Name}, {merge}).
@@ -88,9 +88,10 @@ init([Name,ServerName,StartRadius,X,Y]) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
-idle({increase}, State) ->
+
+idle({start}, State) ->
   {next_state, idle, State,100};
-  
+
 idle(timeout, State) ->
 	[{_,Radius}] = ets:lookup(State,radius),
 	NewRad = Radius + 0.3,
@@ -98,22 +99,9 @@ idle(timeout, State) ->
 	[{_,MyName}] = ets:lookup(State,myName),
 	[{_,ServerName}] = ets:lookup(State,serverName),
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
-	%io:format("Fire ~p, new Radius = ~p~n",[MyName,NewRad]),
+	%io:format("Fire++ ~p, new Radius = ~p~n",[MyName,NewRad]),
 	{next_state, idle, State,100};
 	
-idle({decrease}, State) ->
-	[{_,Radius}] = ets:lookup(State,radius),
-	case Radius -0.5 =<0 of
-		true -> NewRad=0;
-		false -> NewRad = Radius - 0.5
-	end,
-	ets:insert(State,{radius,NewRad}),
-	%io:format("new Radius = ~p~n",[NewRad]),
-	case NewRad == 0 of
-		true -> io:format("fire extinguished~n"),
-				{next_state, fire_out, State};
-		false -> {next_state, idle, State,100}
-	end;
 	
 idle({merge}, State) ->
 	%%TODO pass all sensors and helis to the bigger fire
@@ -123,7 +111,7 @@ idle(_Event, State) ->
   {next_state, idle, State}.
   
 fire_out(_Event, State) ->
-	io:format("no fire~n"),
+	%io:format("no fire~n"),
 	{next_state, fire_out, State}.
  
 %%--------------------------------------------------------------------
@@ -144,6 +132,23 @@ fire_out(_Event, State) ->
 %%                   {stop, Reason, Reply, NewState}
 %% @end
 %%--------------------------------------------------------------------
+ 
+idle({decrease},_From,State) ->
+	[{_,Radius}] = ets:lookup(State,radius),
+	case Radius -0.5 =<0 of
+		true -> NewRad=0;
+		false -> NewRad = Radius - 0.5
+	end,
+	%io:format("Fire-- new Radius = ~p~n",[NewRad]),
+	ets:insert(State,{radius,NewRad}),
+	[{_,MyName}] = ets:lookup(State,myName),
+	[{_,ServerName}] = ets:lookup(State,serverName),
+	unit_server:update(ServerName,fire,[MyName,NewRad]),
+	%io:format("new Radius = ~p~n",[NewRad]),
+	case NewRad == 0 of
+		true -> io:format("fire extinguished~n"), {reply, fire_dead, fire_out, State, 100};
+		false -> {reply, fire_alive, idle, State, 100}
+	end; 
  
 idle(_Event, _From, State) ->
   Reply = {error, invalid_message},

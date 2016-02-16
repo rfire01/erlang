@@ -155,6 +155,10 @@ search_circle(timeout,{R,CX,CY,Angle,Ets}) ->
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,search_circle]),
 	step_circle(CX,CY,R,Angle,Ets),
+	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
+		false -> continue_search;
+		[N,R,X,Y] -> io:format("found fire [~p,~p,~p,~p]~n",[N,R,X,Y])
+	end,
 	case Angle == 360 of 
 		true -> io:format("finished circle~n"),
 				random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),

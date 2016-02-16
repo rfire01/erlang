@@ -68,6 +68,18 @@ init([Name]) ->
 % {stop,Reason,NewState}
 handle_call({wx_request}, _From, State) -> 
 	{reply,ets:tab2list(general_info),State};
+	
+handle_call({heli_fire_check,HeliName}, _From, State) -> 
+	[{{heli,_},HX,HY,_}] = ets:lookup(general_info,{heli,HeliName}),
+	
+	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(general_info), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
+
+	case qlc:eval(QH) of
+		[] -> Replay = false;
+		FireList -> [Replay|_] = FireList
+	end,
+
+	{reply,Replay,State};
 
 handle_call(Message, From, State) -> 
     io:format("Generic call handler: '~p' from '~p' while in '~p'~n",[Message, From, State]),

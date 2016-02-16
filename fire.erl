@@ -155,8 +155,7 @@ idle(_Event, _From, State) ->
   {reply, Reply, idle, State}.
   
 fire_out(_Event, _From, State) ->
-  Reply = {error, invalid_message},
-  {reply, Reply, fire_out, State}.
+  {reply, fire_dead, fire_out, State}.
  
 %%--------------------------------------------------------------------
 %% @private

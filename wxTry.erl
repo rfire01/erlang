@@ -66,7 +66,7 @@ do_init(Server) ->
 	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{720,22}}]),
 	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{340,18}}]), %set default value
     Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{580,18}}]),
-	Sens=wxTextCtrl:new(Panel, 103,[{value, "1"},{pos,{830,18}}]),
+	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{830,18}}]),
 	
 	ets:new(simData,[set,public,named_table]),
 	%ets:insert(simData,{heli,[]}),

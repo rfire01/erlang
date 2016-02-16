@@ -146,14 +146,14 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 	
 handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 	
-	io:format("requesting heli ~n"),
+	%io:format("requesting heli ~n"),
 	Exists = ets:member(sen_fire,{Sen_name,Fire_Name}),
 	case Exists of
-		true -> do_nothing, io:format("heli already sent ~n");
+		true -> do_nothing;%, io:format("heli already sent ~n");
 		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,idle} <- ets:table(general_info)]),
 
 				   case qlc:eval(QH)  of
-						[]-> wait_for_free_heli, io:format("wait_for_free_heli ~n");
+						[]-> wait_for_free_heli;%, io:format("wait_for_free_heli ~n");
 						[{Name,X,Y}|_] -> ets:insert(sen_fire,{{Sen_name,Fire_Name},true}),
 										  ets:insert(general_info,{{heli,Name},X,Y,working}),
 										  [{{_,_},SR,SX,SY}] = ets:lookup(general_info,{sensor,Sen_name}),

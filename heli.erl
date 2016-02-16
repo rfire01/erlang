@@ -116,7 +116,7 @@ idle(timeout, {DifX,DifY,Ets}) ->
   [{_,ServerName}] = ets:lookup(Ets,serverName),
   [{_,CurrentX}] = ets:lookup(Ets,x),
   [{_,CurrentY}] = ets:lookup(Ets,y),
-  unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,idle]),
+  unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
   %[{_,CurrentTime}] = ets:lookup(cord,movetime),
   %case CurrentTime =< 0 of
 	%true -> io:format("TIME OVER~n"),{next_state, idle, State};
@@ -157,7 +157,7 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective,Ets}) ->
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	
 	Arrived = step_dest(CurrentX,CurrentY,DstX,DstY,DifX,DifY,Ets),
-	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,move_destination]),
+	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	case Arrived of
 		true -> io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
@@ -176,7 +176,7 @@ search_circle(timeout,{R,CX,CY,Angle,Ets}) ->
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	[{_,MyName}]   = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
-	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,search_circle]),
+	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	step_circle(CX,CY,R,Angle,Ets),
 	
 	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
@@ -202,11 +202,13 @@ extinguish(timeout,{N,R,X,Y,Ets}) ->
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	[{_,MyName}]   = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
-	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,extinguish]),
+	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	case fire:extinguish_fire(N)of
 	    fire_alive-> {next_state,extinguish,{N,R,X,Y,Ets},?EXTINGUISH_SPEED};
 	    fire_dead->  {DifX,DifY} = rand_idle_diff(),
-			  io:format("fire_dead~n"),{next_state, idle, {DifX,DifY,Ets},?REFRESH_SPEED}
+			  io:format("fire_dead~n"),
+			  unit_server:heli_done(ServerName,MyName),
+			  {next_state, idle, {DifX,DifY,Ets},?REFRESH_SPEED}
 	end;
 	
 extinguish(_Event, Ets) ->
@@ -243,9 +245,9 @@ search_circle(_Event, _From, Ets) ->
   Reply = {error, invalid_message},
   {reply, Reply, search_circle, Ets}.
   
-extinguish(_Event, _From, Ets) ->
-  Reply = {error, invalid_message},
-  {reply, Reply, extinguish, Ets}.
+% extinguish(_Event, _From, Ets) ->
+%   Reply = {error, invalid_message},
+%   {reply, Reply, extinguish, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private

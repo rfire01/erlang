@@ -127,8 +127,9 @@ handle_cast({start_sim}, State) ->
 	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
 	case Unit_Type of
-		heli -> [Name,X,Y,Status]=Unit_Data,	
+		heli -> [Name,X,Y]=Unit_Data,	
 				%io:format("updating helicopter:~p (~p,~p) ~p~n",[Name,X,Y,Status]),
+				[{{_,_},_,_,Status}]= ets:lookup(general_info,{heli,Name}),
 				ets:insert(general_info,{{heli,Name},X,Y,Status});
 		fire -> [Name,RF]=Unit_Data,		%io:format("updating fire: ~p~n",[Name]),
 				[{{fire,_},_,XF,YF}] = ets:lookup(general_info,{fire,Name}),
@@ -150,15 +151,14 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 	Exists = ets:member(sen_fire,{Sen_name,Fire_Name}),
 	case Exists of
 		true -> do_nothing;%, io:format("heli already sent ~n");
-		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,idle} <- ets:table(general_info)]),
-
+		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(general_info)]),
 				   case qlc:eval(QH)  of
 						[]-> wait_for_free_heli;%, io:format("wait_for_free_heli ~n");
 						[{Name,X,Y}|_] -> ets:insert(sen_fire,{{Sen_name,Fire_Name},true}),
-										  ets:insert(general_info,{{heli,Name},X,Y,working}),
-										  [{{_,_},SR,SX,SY}] = ets:lookup(general_info,{sensor,Sen_name}),
-										  io:format("sending heli ~p~n",[Name]),
-										  heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
+								  ets:insert(general_info,{{heli,Name},X,Y,working}),
+								  [{{_,_},SR,SX,SY}] = ets:lookup(general_info,{sensor,Sen_name}),
+								  io:format("sending heli ~p~n",[Name]),
+								  heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
 				   end
 	end,
 	
@@ -166,7 +166,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 					
 handle_cast({heli_done,Name}, State) ->
 	io:format("helicopter: ~p is free ~n",[Name]),
-	ets:update_element(general_info,{heli,Name},{4,idle}),
+	ets:update_element(general_info,{heli,Name},{4,not_working}),
 	{noreply, State};
 
 %% generic async handler

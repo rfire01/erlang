@@ -17,6 +17,8 @@
 -define(MINX, 200).
 -define(MAXY, 556).
 -define(MINY, 200).
+-define(TIM_OUT_SPEED, 197).		%pixel per sec
+-define(CLOCKSPEED, 200-?TIM_OUT_SPEED). 
  
 %-record(state, {hor,ver}).
  
@@ -91,7 +93,7 @@ idle({idle_move}, Ets) ->
   %ets:insert(cord,{movetime,Time}),	
   ets:insert(Ets,{xdif,(random:uniform() * 2 - 1)*10}),
   ets:insert(Ets,{ydif,(random:uniform() * 2 - 1)*10}),
-  {next_state, idle, Ets,100};
+  {next_state, idle, Ets,?CLOCKSPEED};
 
 idle(timeout, Ets) ->
   idle_move(Ets),
@@ -106,7 +108,7 @@ idle(timeout, Ets) ->
 	%false -> ets:insert(cord,{movetime,CurrentTime-1}),
 	%	 {next_state, idle, State,100}
   %end;
-  {next_state, idle, Ets,100};
+  {next_state, idle, Ets,?CLOCKSPEED};
 
 idle({move_dst,DstX,DstY,Objective},Ets) ->
 	io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
@@ -117,14 +119,14 @@ idle({move_dst,DstX,DstY,Objective},Ets) ->
 				N = DstY - M * DstX;
 		false -> M=inf, N=0
 	end,
-	{next_state,move_destination,{M,N,DstX,DstY,Objective,Ets},100};
+	{next_state,move_destination,{M,N,DstX,DstY,Objective,Ets},?CLOCKSPEED};
 	
 idle({circle,R},Ets) ->
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	CX = CurrentX - R,
 	CY = CurrentY,
-	{next_state,search_circle,{R,CX,CY,0,Ets},100};
+	{next_state,search_circle,{R,CX,CY,0,Ets},?CLOCKSPEED};
   
 idle(_Event, Ets) ->
   {next_state, idle, Ets}.
@@ -139,12 +141,12 @@ move_destination(timeout,{M,N,DstX,DstY,Objective,Ets}) ->
 	case Arrived of
 		true -> io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
-				{next_state,search_circle,{CR,CX,CY,A,Ets},100};
-		false -> {next_state,move_destination,{M,N,DstX,DstY,Objective,Ets},100}
+				{next_state,search_circle,{CR,CX,CY,A,Ets},?CLOCKSPEED};
+		false -> {next_state,move_destination,{M,N,DstX,DstY,Objective,Ets},?CLOCKSPEED}
 	end;
 	
 move_destination(_Event, Ets) ->
-  {next_state, move_destination, Ets,100}.
+  {next_state, move_destination, Ets,?CLOCKSPEED}.
   
 
 search_circle(timeout,{R,CX,CY,Angle,Ets}) -> 
@@ -160,8 +162,8 @@ search_circle(timeout,{R,CX,CY,Angle,Ets}) ->
 				random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 			    ets:insert(Ets,{xdif,(random:uniform() * 2 - 1)*10}),
 			    ets:insert(Ets,{ydif,(random:uniform() * 2 - 1)*10}),
-				{next_state,idle,Ets,100};
-		false -> {next_state,search_circle,{R,CX,CY,Angle + 1,Ets},100}
+				{next_state,idle,Ets,?CLOCKSPEED};
+		false -> {next_state,search_circle,{R,CX,CY,Angle + 1,Ets},?CLOCKSPEED}
 	end;	
 
 	

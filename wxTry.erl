@@ -280,7 +280,7 @@ add_unit_to_screen(heli,[X,Y],Paint) ->
 	wxImage:destroy(Image1),
 	wxImage:destroy(Image2),
 	%%%%%%%%%%wxImage:destroy(Image5),
-	wxDC:drawBitmap(Paint, Bmp, {round(X)-100,round(Y)-100}),
+	wxDC:drawBitmap(Paint, Bmp, {round(X)-50,round(Y)-50}),
 	wxBitmap:destroy(Bmp);
 	
 add_unit_to_screen(fire,[R,X,Y],Paint) ->

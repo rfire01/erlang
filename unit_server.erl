@@ -115,7 +115,8 @@ handle_cast({start_sim}, State) ->
 	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
 	case Unit_Type of
-		heli -> [Name,X,Y,Status]=Unit_Data,	io:format("updating helicopter:~p (~p,~p) ~p~n",[Name,X,Y,Status]),
+		heli -> [Name,X,Y,Status]=Unit_Data,	
+				%io:format("updating helicopter:~p (~p,~p) ~p~n",[Name,X,Y,Status]),
 				ets:insert(general_info,{{heli,Name},X,Y,Status});
 		fire -> [Name,RF]=Unit_Data,		%io:format("updating fire: ~p~n",[Name]),
 				[{{fire,_},_,XF,YF}] = ets:lookup(general_info,{fire,Name}),
@@ -143,7 +144,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 						[]-> wait_for_free_heli, io:format("wait_for_free_heli ~n");
 						[{Name,X,Y}|_] -> ets:insert(sen_fire,{{Sen_name,Fire_Name},true}),
 										  ets:insert(general_info,{{heli,Name},X,Y,working}),
-										  [{{_,_},SX,SY,SR}] = ets:lookup(general_info,{sensor,Sen_name}),
+										  [{{_,_},SR,SX,SY}] = ets:lookup(general_info,{sensor,Sen_name}),
 										  io:format("sending heli ~p~n",[Name]),
 										  heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
 				   end

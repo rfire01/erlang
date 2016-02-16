@@ -157,7 +157,10 @@ search_circle(timeout,{R,CX,CY,Angle,Ets}) ->
 	step_circle(CX,CY,R,Angle,Ets),
 	case Angle == 360 of 
 		true -> io:format("finished circle~n"),
-				{next_state,idle,Ets};
+				random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
+			    ets:insert(Ets,{xdif,(random:uniform() * 2 - 1)*10}),
+			    ets:insert(Ets,{ydif,(random:uniform() * 2 - 1)*10}),
+				{next_state,idle,Ets,100};
 		false -> {next_state,search_circle,{R,CX,CY,Angle + 1,Ets},100}
 	end;	
 

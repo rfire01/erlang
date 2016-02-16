@@ -86,19 +86,19 @@ init([Name,ServerName,X,Y]) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
-idle({idle_move}, State) ->
+idle({idle_move}, Ets) ->
   random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
   %ets:insert(cord,{movetime,Time}),	
-  ets:insert(State,{xdif,(random:uniform() * 2 - 1)*10}),
-  ets:insert(State,{ydif,(random:uniform() * 2 - 1)*10}),
-  {next_state, idle, State,100};
+  ets:insert(Ets,{xdif,(random:uniform() * 2 - 1)*10}),
+  ets:insert(Ets,{ydif,(random:uniform() * 2 - 1)*10}),
+  {next_state, idle, Ets,100};
 
-idle(timeout, State) ->
-  idle_move(State),
-  [{_,MyName}] = ets:lookup(State,myName),
-  [{_,ServerName}] = ets:lookup(State,serverName),
-  [{_,CurrentX}] = ets:lookup(State,x),
-  [{_,CurrentY}] = ets:lookup(State,y),
+idle(timeout, Ets) ->
+  idle_move(Ets),
+  [{_,MyName}] = ets:lookup(Ets,myName),
+  [{_,ServerName}] = ets:lookup(Ets,serverName),
+  [{_,CurrentX}] = ets:lookup(Ets,x),
+  [{_,CurrentY}] = ets:lookup(Ets,y),
   unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,idle]),
   %[{_,CurrentTime}] = ets:lookup(cord,movetime),
   %case CurrentTime =< 0 of
@@ -106,32 +106,35 @@ idle(timeout, State) ->
 	%false -> ets:insert(cord,{movetime,CurrentTime-1}),
 	%	 {next_state, idle, State,100}
   %end;
-  {next_state, idle, State,100};
+  {next_state, idle, Ets,100};
 
-idle({move_dst,DstX,DstY,Objective},State) ->
+idle({move_dst,DstX,DstY,Objective},Ets) ->
 	io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
-	[{_,CurrentX}] = ets:lookup(State,x),
-	[{_,CurrentY}] = ets:lookup(State,y),
+	[{_,CurrentX}] = ets:lookup(Ets,x),
+	[{_,CurrentY}] = ets:lookup(Ets,y),
 	case (DstX - CurrentX)/= 0 of
 		true -> M=(DstY-CurrentY) / (DstX - CurrentX),
 				N = DstY - M * DstX;
 		false -> M=inf, N=0
 	end,
-	{next_state,move_destination,{M,N,DstX,DstY,Objective,State},100};
+	{next_state,move_destination,{M,N,DstX,DstY,Objective,Ets},100};
 	
-idle({circle,R},State) ->
-	[{_,CurrentX}] = ets:lookup(State,x),
-	[{_,CurrentY}] = ets:lookup(State,y),
+idle({circle,R},Ets) ->
+	[{_,CurrentX}] = ets:lookup(Ets,x),
+	[{_,CurrentY}] = ets:lookup(Ets,y),
 	CX = CurrentX - R,
 	CY = CurrentY,
-	{next_state,search_circle,{R,CX,CY,0,State},100};
+	{next_state,search_circle,{R,CX,CY,0,Ets},100};
   
-idle(_Event, State) ->
-  {next_state, idle, State}.
+idle(_Event, Ets) ->
+  {next_state, idle, Ets}.
   
 move_destination(timeout,{M,N,DstX,DstY,Objective,Ets}) -> 
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
+	[{_,MyName}]   = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,move_destination]),
 	Arrived = step_dest(CurrentX,CurrentY,M,N,DstX,DstY,Ets),
 	case Arrived of
 		true -> io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
@@ -140,12 +143,17 @@ move_destination(timeout,{M,N,DstX,DstY,Objective,Ets}) ->
 		false -> {next_state,move_destination,{M,N,DstX,DstY,Objective,Ets},100}
 	end;
 	
-move_destination(_Event, State) ->
-  {next_state, move_destination, State,100}.
+move_destination(_Event, Ets) ->
+  {next_state, move_destination, Ets,100}.
   
 
 search_circle(timeout,{R,CX,CY,Angle,Ets}) -> 
 	%[{_,CurrentX}] = ets:lookup(cord,x),
+	[{_,CurrentX}] = ets:lookup(Ets,x),
+	[{_,CurrentY}] = ets:lookup(Ets,y),
+	[{_,MyName}]   = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,search_circle]),
 	step_circle(CX,CY,R,Angle,Ets),
 	case Angle == 360 of 
 		true -> io:format("finished circle~n"),
@@ -154,8 +162,8 @@ search_circle(timeout,{R,CX,CY,Angle,Ets}) ->
 	end;	
 
 	
-search_circle(_Event, State) ->
-  {next_state, move_destination, State}.
+search_circle(_Event, Ets) ->
+  {next_state, move_destination, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -175,17 +183,17 @@ search_circle(_Event, State) ->
 %%                   {stop, Reason, Reply, NewState}
 %% @end
 %%--------------------------------------------------------------------
-idle(_Event, _From, State) ->
+idle(_Event, _From, Ets) ->
   Reply = {error, invalid_message},
-  {reply, Reply, idle, State}.
+  {reply, Reply, idle, Ets}.
   
-move_destination(_Event, _From, State) ->
+move_destination(_Event, _From, Ets) ->
   Reply = {error, invalid_message},
-  {reply, Reply, move_destination, State}.
+  {reply, Reply, move_destination, Ets}.
   
-search_circle(_Event, _From, State) ->
+search_circle(_Event, _From, Ets) ->
   Reply = {error, invalid_message},
-  {reply, Reply, search_circle, State}.
+  {reply, Reply, search_circle, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -200,8 +208,8 @@ search_circle(_Event, _From, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
-handle_event(_Event, StateName, State) ->
-    {next_state, StateName, State}.
+handle_event(_Event, StateName, Ets) ->
+    {next_state, StateName, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -219,9 +227,9 @@ handle_event(_Event, StateName, State) ->
 %%                   {stop, Reason, Reply, NewState}
 %% @end
 %%--------------------------------------------------------------------
-handle_sync_event(_Event, _From, StateName, State) ->
+handle_sync_event(_Event, _From, StateName, Ets) ->
     Reply = ok,
-    {reply, Reply, StateName, State}.
+    {reply, Reply, StateName, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -236,8 +244,8 @@ handle_sync_event(_Event, _From, StateName, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(_Info, StateName, State) ->
-    {next_state, StateName, State}.
+handle_info(_Info, StateName, Ets) ->
+    {next_state, StateName, Ets}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -250,7 +258,7 @@ handle_info(_Info, StateName, State) ->
 %% @spec terminate(Reason, StateName, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(_Reason, _StateName, _State) ->
+terminate(_Reason, _StateName, _Ets) ->
     ok.
  
 %%--------------------------------------------------------------------
@@ -262,8 +270,8 @@ terminate(_Reason, _StateName, _State) ->
 %%                   {ok, StateName, NewState}
 %% @end
 %%--------------------------------------------------------------------
-code_change(_OldVsn, StateName, State, _Extra) ->
-    {ok, StateName, State}.
+code_change(_OldVsn, StateName, Ets, _Extra) ->
+    {ok, StateName, Ets}.
  
 %%%===================================================================
 %%% Internal functions
@@ -344,7 +352,7 @@ step_dest(X,Y,M,N,DstX,DstY,Ets) ->
 	ets:insert(Ets,{x,NewX}),
 	ets:insert(Ets,{y,NewY}),
 	io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]),
-	((abs(DstX - X) == 0) and (abs(DstY - Y) == 0)).
+	((abs(DstX - X) < 0.000001) and (abs(DstY - Y) < 0.000001)).
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

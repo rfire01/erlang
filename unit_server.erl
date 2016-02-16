@@ -94,7 +94,7 @@ handle_cast({create,DataList}, State) ->
 	ets:insert(general_info,DataList),
 	io:format("starting helicopters ~n"),
 	HeliList = ets:match(general_info,{{heli,'$1'},'$2','$3','_'}),
-	[heli:start(Name,X,Y) || [Name,X,Y] <- HeliList],
+	[heli:start(Name,MyName,X,Y) || [Name,X,Y] <- HeliList],
 	FireList = ets:match(general_info,{{fire,'$1'},'$2','$3','$4'}),
 	io:format("starting fires ~p~n",[FireList]),
 	[fire:start(Name,MyName,R,X,Y) || [Name,R,X,Y] <- FireList],
@@ -115,7 +115,7 @@ handle_cast({start_sim}, State) ->
 	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
 	case Unit_Type of
-		heli -> [Name,X,Y,Status]=Unit_Data,	io:format("updating helicopter: ~p~n",[Name]),
+		heli -> [Name,X,Y,Status]=Unit_Data,	io:format("updating helicopter:~p (~p,~p) ~p~n",[Name,X,Y,Status]),
 				ets:insert(general_info,{{heli,Name},X,Y,Status});
 		fire -> [Name,RF]=Unit_Data,		%io:format("updating fire: ~p~n",[Name]),
 				[{{fire,_},_,XF,YF}] = ets:lookup(general_info,{fire,Name}),
@@ -133,14 +133,14 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 	
 handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 	
-	%io:format("requesting heli ~n"),
+	io:format("requesting heli ~n"),
 	Exists = ets:member(sen_fire,{Sen_name,Fire_Name}),
 	case Exists of
-		true -> do_nothing;%, io:format("heli already sent ~n");
-		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(general_info)]),
+		true -> do_nothing, io:format("heli already sent ~n");
+		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,idle} <- ets:table(general_info)]),
 
 				   case qlc:eval(QH)  of
-						[]-> wait_for_free_heli;
+						[]-> wait_for_free_heli, io:format("wait_for_free_heli ~n");
 						[{Name,X,Y}|_] -> ets:insert(sen_fire,{{Sen_name,Fire_Name},true}),
 										  ets:insert(general_info,{{heli,Name},X,Y,working}),
 										  [{{_,_},SX,SY,SR}] = ets:lookup(general_info,{sensor,Sen_name}),
@@ -153,7 +153,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 					
 handle_cast({heli_done,Name}, State) ->
 	io:format("helicopter: ~p is free ~n",[Name]),
-	ets:update_element(general_info,{heli,Name},{4,not_working}),
+	ets:update_element(general_info,{heli,Name},{4,idle}),
 	{noreply, State};
 
 %% generic async handler

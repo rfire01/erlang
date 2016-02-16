@@ -3,7 +3,7 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/3]).
+-export([start/4]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,move_destination/2,move_destination/3, handle_event/3,
@@ -33,8 +33,8 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start(Name,X,Y) ->
-    gen_fsm:start({global, Name}, ?MODULE, [X,Y], []).
+start(Name,ServerName,X,Y) ->
+    gen_fsm:start({global, Name}, ?MODULE, [Name,ServerName,X,Y], []).
  
 start_sim(Name) ->
   gen_fsm:send_event({global,Name}, {idle_move}).
@@ -62,11 +62,13 @@ move_circle(Name,R) ->
 %%                     {stop, StopReason}
 %% @end
 %%--------------------------------------------------------------------
-init([X,Y]) ->
+init([Name,ServerName,X,Y]) ->
 	%process_flag(trap_exit, true),
     Ets = ets:new(cord,[set]),
     ets:insert(Ets,{x,X}),
     ets:insert(Ets,{y,Y}),
+    ets:insert(Ets,{myName,Name}),
+    ets:insert(Ets,{serverName,ServerName}),
     {ok, idle, Ets}.
  
 %%--------------------------------------------------------------------
@@ -93,6 +95,11 @@ idle({idle_move}, State) ->
 
 idle(timeout, State) ->
   idle_move(State),
+  [{_,MyName}] = ets:lookup(State,myName),
+  [{_,ServerName}] = ets:lookup(State,serverName),
+  [{_,CurrentX}] = ets:lookup(State,x),
+  [{_,CurrentY}] = ets:lookup(State,y),
+  unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,idle]),
   %[{_,CurrentTime}] = ets:lookup(cord,movetime),
   %case CurrentTime =< 0 of
 	%true -> io:format("TIME OVER~n"),{next_state, idle, State};

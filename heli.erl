@@ -20,7 +20,7 @@
 -define(MAXY, 556).
 -define(MINY, 200).
 
--define(MOVEMENT_SPEED,50).
+-define(MOVEMENT_SPEED,70).
 -define(REFRESH_SPEED,10).
 -define(EXTINGUISH_SPEED,90).
 
@@ -161,8 +161,8 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective,Ets}) ->
 	case Arrived of
 		true -> io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
-
-				{next_state,search_circle,{CR,CX,CY,A,Ets},?REFRESH_SPEED};
+				DifAngle = calc_angle_diff(CR),
+				{next_state,search_circle,{CR,CX,CY,A,DifAngle,Ets},?REFRESH_SPEED};
 		false -> {next_state,move_destination,{DifX,DifY,DstX,DstY,Objective,Ets},?REFRESH_SPEED}
 	end;
 	
@@ -170,7 +170,7 @@ move_destination(_Event, Ets) ->
   {next_state, move_destination, Ets,?REFRESH_SPEED}.
   
 
-search_circle(timeout,{R,CX,CY,Angle,Ets}) -> 
+search_circle(timeout,{R,CX,CY,Angle,DifAngle,Ets}) -> 
 	%[{_,CurrentX}] = ets:lookup(cord,x),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
@@ -179,13 +179,15 @@ search_circle(timeout,{R,CX,CY,Angle,Ets}) ->
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY,search_circle]),
 	step_circle(CX,CY,R,Angle,Ets),
 	
+	io:format("new angle = ~p~n", [Angle]),
+	
 	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
 		false -> 
-		    case Angle == 360 of 
-			true -> io:format("finished circle~n"),
-				{DifX,DifY} = rand_idle_diff(),
-				{next_state,idle,{DifX,DifY,Ets},?REFRESH_SPEED};
-			false -> {next_state,search_circle,{R,CX,CY,Angle + 1,Ets},?REFRESH_SPEED}
+		    case Angle > 6.29 of 
+				true -> io:format("finished circle~n"),
+						{DifX,DifY} = rand_idle_diff(),
+						{next_state,idle,{DifX,DifY,Ets},?REFRESH_SPEED};
+				false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,Ets},?REFRESH_SPEED}
 		    end;
 		    
 		[NF,RF,XF,YF] -> io:format("found fire [~p,~p,~p,~p]~n",[NF,RF,XF,YF]),
@@ -384,10 +386,10 @@ calc_destination_movement_diffs(X,Y,DstX,DstY) ->
 	Travel_time = S / ?MOVEMENT_SPEED,
 	Ticks_required = 1000 * Travel_time / ?REFRESH_SPEED,
 	Dif = S / Ticks_required,
-	io:format("dif = ~p, angle = ~p~n",[Dif,Angle/math:pi()*180]),
+	%io:format("dif = ~p, angle = ~p~n",[Dif,Angle/math:pi()*180]),
 	DifX = -1* Dif * math:cos(Angle),
 	DifY = -1 * Dif * math:sin(Angle),
-	io:format("distance = ~p, difs = ~p~n",[S,{DifX,DifY}]),
+	%io:format("distance = ~p, difs = ~p~n",[S,{DifX,DifY}]),
 	{DifX,DifY}.
 	
 
@@ -402,7 +404,7 @@ step_dest(X,Y,DstX,DstY,DifX,DifY,Ets) ->
 	case Dist < Diff of
 		true -> NewX = DstX,
 				NewY = DstY,
-				Res = true, io:format("arrived");
+				Res = true;
 		false -> NewX = X+DifX,
 				 NewY = Y+DifY,
 				 Res = false
@@ -452,16 +454,27 @@ step_dest(X,Y,DstX,DstY,DifX,DifY,Ets) ->
 %	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+calc_angle_diff(R) ->
+	S = 2 * math:pi() * R,
+	Travel_time = S / ?MOVEMENT_SPEED,
+	Ticks_required = Travel_time * 1000 / ?REFRESH_SPEED,
+	Dif = S / Ticks_required,
+	Delta_Angle = Dif / R,
+	%io:format("diff angle = ~p~n", [Delta_Angle]),
+	Delta_Angle.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 step_circle(CX,CY,R,Angle,Ets) -> 
-	NewX = math:cos(Angle * math:pi() / 180) * R + CX,
-	NewY = math:sin(Angle * math:pi() / 180) *R + CY,
+	NewX = math:cos(Angle) * R + CX,
+	NewY = math:sin(Angle) *R + CY,
 	ets:insert(Ets,{x,NewX}),
 	ets:insert(Ets,{y,NewY}).
 	%Debug = math:sqrt( (NewX-CX) * (NewX-CX) + (NewY-CY) * (NewY-CY)),
 	%io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]). %distance from circle = ~p~n",[NewX,NewY,Debug])
 	
 	
-%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 rand_idle_diff()->
   random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
@@ -476,3 +489,4 @@ rand_idle_diff()->
   DifX = Xdif * (?REFRESH_SPEED / 1000),
   DifY = Ydif * (?REFRESH_SPEED / 1000),
   {DifX,DifY}.
+

@@ -30,7 +30,7 @@
 %% @end
 %%--------------------------------------------------------------------
 start(Name,ServerName,Radius,X,Y) ->
-    gen_fsm:start({global, Name}, ?MODULE, [Name,ServerName,Radius,X,Y], []).
+    gen_fsm:start_link({global, Name}, ?MODULE, [Name,ServerName,Radius,X,Y], []).
  
 start_sim(Name) ->
   gen_fsm:send_event({global, Name}, {start}).

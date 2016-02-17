@@ -32,6 +32,7 @@ start_sim(GenName) ->
     gen_server:cast({global, GenName}, {start_sim}).
 	
 create(GenName,Data) -> 
+	 io:format("######create~n",[]),
 	%Data = [{{sensor,sensor1},10,10,10},{{fire,fire1},1,30,10},{{heli,heli1},7,85,not_working}],%[ {{heli,heli1},7,85,not_working},{{heli,heli2},800,45,not_working},{{heli,heli3},180,340,not_working},
 			% {{fire,fire1},7,85,50},{{fire,fire2},800,123,50},{{fire,fire3},12,230,50},
 			 %{{sensor,sensor1},14,47,10},{{sensor,sensor2},314,147,10},{{sensor,sensor3},140,470,10}],
@@ -62,6 +63,7 @@ init([Name]) ->
 	ets:insert(Ets,{myInfo,Name}),
 	Sen_fire = ets:new(sen_fire,[set]),
 	put(sen_fire_id,Sen_fire),
+	io:format("######end of init gen server~n",[]),
     {ok, initialized}.
 
 %% Synchronous, possible return values  
@@ -100,7 +102,6 @@ handle_call(Message, From, State) ->
 % {stop,Reason,NewState}
 %% normal termination clause
 handle_cast({create,DataList}, State) ->
-	
 	Ets = get(ets_id),
 	[{_,MyName}] = ets:lookup(Ets,myInfo),
 	
@@ -110,7 +111,7 @@ handle_cast({create,DataList}, State) ->
 	ets:delete_all_objects(Ets),
 	
 	ets:insert(Ets,{myInfo,MyName}),
-
+	
 	io:format("insert data: ~p~n",[DataList]),
 	ets:insert(Ets,DataList),
 	io:format("starting helicopters ~n"),
@@ -125,8 +126,8 @@ handle_cast({create,DataList}, State) ->
     {noreply, State};
 	
 handle_cast({start_sim}, State) ->
-	Ets = get(ets_id),
 	io:format("starting simulation ~n"),
+	Ets = get(ets_id),
 	HeliList = ets:match(Ets,{{heli,'$1'},'_','_','_'}),
 	[heli:start_sim(Name) || [Name] <- HeliList],
 	FireList = ets:match(Ets,{{fire,'$1'},'_','_','_'}),
@@ -136,7 +137,9 @@ handle_cast({start_sim}, State) ->
 	{noreply, State};
 	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
+	%io:format("enter update : Unit_Type = ~p,Unit_Data=~p ~n",[Unit_Type,Unit_Data]),
 	Ets = get(ets_id),
+	%io:format("1~n",[]),
 	case Unit_Type of
 		heli -> [Name,X,Y]=Unit_Data,	
 				%io:format("updating helicopter:~p (~p,~p) ~p~n",[Name,X,Y,Status]),
@@ -162,8 +165,7 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 				case qlc:eval(QH) of
 					[] -> dont_care;
 					SensorList -> [ sensor:new_alert(Sen,Name) || Sen <- SensorList]%, io:format("sensor activated ~p~n",[SensorList])
-				end
-				
+				end			
 	end,
 	{noreply, State};	
 	
@@ -212,8 +214,11 @@ handle_info(_Message, _Server) ->
 %% Server termination
 terminate(_Reason, _Server) ->
 	Ets = get(ets_id),
+	ets:delete(Ets,myInfo),
 	ObjList = ets:tab2list(Ets),
+	io:format("Generic termination ObjList: '~p' ~n",[ObjList]),
 	[gen_fsm:stop({global,H}) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
+	%timer:sleep(1000),
     io:format("Generic termination handler: '~p' '~p'~n",[_Reason, _Server]).
 
 
@@ -253,7 +258,10 @@ overlappingFire(X1,Y1,X2,Y2,R1,R2)->
 	    false->false
     end.
 		    
-    %Temp = math:acos(math:cos(Rad)).
-    %Temp * 180 / math:pi()==Deg.
-
+flush()->
+  receive
+    Any-> io:format("fluse: ~p ~n",[Any]),
+	flush()
+  after 0 -> ok
+end.
 	

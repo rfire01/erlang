@@ -491,6 +491,4 @@ rand_idle_diff()->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 check_frame(HX,HY,FrameX,FrameY) -> 
-	%io:format("(HX,HY,FX,FY) = ~p~n",[{HX,HY,FrameX,FrameY}]),
-	%io:format("distance from frame = ~p~n",[((HX-FrameX) * (HX-FrameX) + (HY-FrameY) * (HY-FrameY))]),
 	((HX-FrameX) * (HX-FrameX) + (HY-FrameY) * (HY-FrameY)) <16.

@@ -162,11 +162,13 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(Ets)]),
 				   case qlc:eval(QH)  of
 						[]-> wait_for_free_heli;%, io:format("wait_for_free_heli ~n");
-						[{Name,X,Y}|_] -> ets:insert(Sen_fire,{{Sen_name,Fire_Name},true}),
-								  ets:insert(Ets,{{heli,Name},X,Y,working}),
-								  [{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
-								  io:format("sending heli ~p~n",[Name]),
-								  heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
+						HeliList -> [{_,_},_,SX,SY} = ets:lookup(Ets,{sensor,Sen_name}),
+									{Name,X,Y} = closest_heli(HeliList,SX,SY),
+									ets:insert(Sen_fire,{{Sen_name,Fire_Name},true}),
+									ets:insert(Ets,{{heli,Name},X,Y,working}),
+									[{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
+									io:format("sending heli ~p~n",[Name]),
+									heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
 				   end
 	end,
 	
@@ -204,5 +206,17 @@ terminate(_Reason, _Server) ->
 code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.    
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+closest_heli([{Name,HX,HT}|T],SX,SY) -> 
+	DistSquare = (HX-SX) * (HX-SX) + (HY-SY) * (HY-SY),
+	closest_heli(T,{Name,DistSquare,HX,HY},SX,SY).
+
+closest_heli([],{Name,_BestDist,X,Y},_SX,_SY) -> {Name,X,Y};
+closest_heli([{Name,HX,HT}|T],{BestName,BestDist,BestX,BestY},SX,SY) ->
+	DistSquare = (HX-SX) * (HX-SX) + (HY-SY) * (HY-SY),
+	case DistSquare < BestDist of
+		true -> closest_heli(T,{Name,DistSquare,HX,HY},SX,SY);
+		false -> closest_heli(T,{BestName,BestDist,BestX,BestY},SX,SY)
+	end.
 
 	

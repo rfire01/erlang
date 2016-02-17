@@ -11,16 +11,16 @@
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
 -export([start_sim/1,move_dst/4,move_circle/2]).
- 
+-include("config.hrl").
 %%-define(SERVER, ?MODULE).
--define(MAXX, 1200-25).
--define(MINX, 0-25).
--define(MAXY, 556-25).
--define(MINY, 0-25).
-
--define(MOVEMENT_SPEED,100).
--define(REFRESH_SPEED,10).
--define(EXTINGUISH_SPEED,40).
+% -define(MAXX, 1200-25).
+% -define(MINX, 0-25).
+% -define(MAXY, 556-25).
+% -define(MINY, 0-25).
+% 
+% -define(MOVEMENT_SPEED,100).
+% -define(REFRESH_SPEED,10).
+% -define(EXTINGUISH_SPEED,40).
 
  
 %-record(state, {hor,ver}).

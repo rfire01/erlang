@@ -177,12 +177,13 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(Ets)]),
 				   case qlc:eval(QH)  of
 						[]-> wait_for_free_heli;%, io:format("wait_for_free_heli ~n");
-
-						[{Name,X,Y}|_] -> ets:insert(Sen_fire,{{Sen_name,Fire_Name},true}),
-								  ets:insert(Ets,{{heli,Name},X,Y,working}),
-								  [{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
-								  io:format("sending heli ~p~n",[Name]),
-								  heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
+						HeliList -> [{{_,_},_,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
+									{Name,X,Y} = closest_heli(HeliList,SX,SY),
+									ets:insert(Sen_fire,{{Sen_name,Fire_Name},true}),
+									ets:insert(Ets,{{heli,Name},X,Y,working}),
+									[{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
+									io:format("sending heli ~p~n",[Name]),
+									heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
 				   end
 	end,
 	
@@ -221,6 +222,21 @@ code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+
+closest_heli([{Name,HX,HY}|T],SX,SY) -> 
+	DistSquare = (HX-SX) * (HX-SX) + (HY-SY) * (HY-SY),
+	closest_heli(T,{Name,DistSquare,HX,HY},SX,SY).
+
+closest_heli([],{Name,_BestDist,X,Y},_SX,_SY) -> {Name,X,Y};
+closest_heli([{Name,HX,HY}|T],{BestName,BestDist,BestX,BestY},SX,SY) ->
+	DistSquare = (HX-SX) * (HX-SX) + (HY-SY) * (HY-SY),
+	case DistSquare < BestDist of
+		true -> closest_heli(T,{Name,DistSquare,HX,HY},SX,SY);
+		false -> closest_heli(T,{BestName,BestDist,BestX,BestY},SX,SY)
+	end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	
 overlappingFire(X1,Y1,X2,Y2,R1,R2)->
     case ((X1-X2)*(X1-X2) + (Y1-Y2)*(Y1-Y2)) =< (R2+R1)*(R2+R1) of
 	    true->  Dis= math:sqrt((X1-X2)*(X1-X2)+(Y1-Y2)*(Y1-Y2)),
@@ -233,11 +249,11 @@ overlappingFire(X1,Y1,X2,Y2,R1,R2)->
 		    SinB=2*math:acos(CosB),
 		    Over=(R1*R1*math:acos(CosA))-(0.5*R1*R1*math:sin(SinA))+(R2*R2*math:acos(CosB))-(0.5*R2*R2*math:sin(SinB)),
 		    Ans= Over*100/(math:pi()*R1*R1)>?OVERLAP_PERC,
-		   % io:format("Over: ~p ; S: ~p ; precent = ~p  ~n",[Over,math:pi()*R1*R1, Over*100/(math:pi()*R1*R1)]),
 		    Ans;
 	    false->false
     end.
 		    
     %Temp = math:acos(math:cos(Rad)).
     %Temp * 180 / math:pi()==Deg.
+
 	

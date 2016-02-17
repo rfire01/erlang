@@ -159,10 +159,10 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective}) ->
 	Arrived = step_dest(CurrentX,CurrentY,DstX,DstY,DifX,DifY,Ets),
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	case Arrived of
-		true -> %io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
+		true -> io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
 				DifAngle = calc_angle_diff(CR),
-				{next_state,search_circle,{CR,CX,CY,A,DifAngle},?REFRESH_SPEED};
+				{next_state,search_circle,{CR,CX,CY,A,DifAngle,Objective},?REFRESH_SPEED};
 		false -> {next_state,move_destination,{DifX,DifY,DstX,DstY,Objective},?REFRESH_SPEED}
 	end;
 	
@@ -170,7 +170,7 @@ move_destination(_Event, State) ->
   {next_state, move_destination, State,?REFRESH_SPEED}.
   
 
-search_circle(timeout,{R,CX,CY,Angle,DifAngle}) -> 
+search_circle(timeout,{R,CX,CY,Angle,DifAngle,SensorData}) -> 
 	Ets = get(ets_id),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
@@ -187,8 +187,9 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle}) ->
 				case Angle > 6.29 of 
 					true -> io:format("finished circle~n"),
 							{DifX,DifY} = rand_idle_diff(),
+							unit_server:heli_done(ServerName,MyName),
 							{next_state,idle,{DifX,DifY},?REFRESH_SPEED};
-					false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle},?REFRESH_SPEED}
+					false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,SensorData},?REFRESH_SPEED}
 				end;
 		    
 		[NF,RF,XF,YF] -> io:format("found fire [~p,~p,~p,~p]~n",[NF,RF,XF,YF]),
@@ -196,9 +197,9 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle}) ->
 						FrameX = RF * math:cos(StartAngle)+ XF,
 						FrameY = RF * math:sin(StartAngle)+ YF,
 						case check_frame(CurrentX,CurrentY,FrameX,FrameY) of
-							true -> {next_state,extinguish,{circle,NF,RF,XF,YF,StartAngle},?EXTINGUISH_SPEED};
+							true -> {next_state,extinguish,{circle,NF,RF,XF,YF,StartAngle,SensorData},?EXTINGUISH_SPEED};
 							false -> {DifX,DifY} = calc_destination_movement_diffs(StartAngle),
-									 {next_state,extinguish,{straight,-1*DifX,-1*DifY,NF,XF,YF,StartAngle},?EXTINGUISH_SPEED}
+									 {next_state,extinguish,{straight,-1*DifX,-1*DifY,NF,XF,YF,StartAngle,SensorData},?EXTINGUISH_SPEED}
 						end
 	end;
 		
@@ -207,7 +208,7 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle}) ->
 search_circle(_Event, State) ->
   {next_state, move_destination, State}.
 
-extinguish(timeout,{circle,N,R,X,Y,Angle}) -> 
+extinguish(timeout,{circle,N,R,X,Y,Angle,SensorData}) -> 
 	Ets = get(ets_id),
 	step_circle(X,Y,R,Angle,Ets),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
@@ -219,16 +220,21 @@ extinguish(timeout,{circle,N,R,X,Y,Angle}) ->
 	DifAngle = calc_angle_diff(R),
 	
 	case FireState of
-	    fire_alive-> {next_state,extinguish,{circle,N,NewR,X,Y,Angle + DifAngle},?EXTINGUISH_SPEED};
-	    fire_dead->  {DifX,DifY} = rand_idle_diff(),
+	    fire_alive-> {next_state,extinguish,{circle,N,NewR,X,Y,Angle + DifAngle,SensorData},?EXTINGUISH_SPEED};
+	    fire_dead->  %{DifX,DifY} = rand_idle_diff(),
 					  io:format("fire_dead~n"),
-					  unit_server:heli_done(ServerName,MyName),
-					  {next_state, idle, {DifX,DifY},?REFRESH_SPEED}
+					  %unit_server:heli_done(ServerName,MyName),
+					  {CR,CX,CY,_A} = SensorData,
+					  {DstX,DstY} = {CR+CX,CY},
+					  NextAngle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
+					  {NextDifX,NextDifY} = calc_destination_movement_diffs(NextAngle),
+					  {next_state,move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData},?REFRESH_SPEED}
+					  %{next_state, idle, {DifX,DifY},?REFRESH_SPEED}
 	end;
 	
 	
   
-extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle}) -> 
+extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData}) -> 
 	Ets = get(ets_id),
 	move_dif(DifX,DifY,Ets),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
@@ -237,22 +243,28 @@ extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle}) ->
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	{FireState,NewR} = fire:extinguish_fire(NF),
-	
+	 
 	FrameX = NewR * math:cos(Angle)+ XF,
 	FrameY = NewR * math:sin(Angle) + YF,
 	
 	case FireState of
 	    fire_alive-> case check_frame(CurrentX,CurrentY,FrameX,FrameY) of
-						true -> {next_state,extinguish,{circle,NF,NewR,XF,YF,Angle},?EXTINGUISH_SPEED};
-						false -> {next_state,extinguish,{straight,DifX,DifY,NF,XF,YF,Angle},?EXTINGUISH_SPEED}
+						true -> {next_state,extinguish,{circle,NF,NewR,XF,YF,Angle,SensorData},?EXTINGUISH_SPEED};
+						false -> {next_state,extinguish,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData},?EXTINGUISH_SPEED}
 					 end;
-	    fire_dead->  {DifX,DifY} = rand_idle_diff(),
+	    fire_dead->  %{DifX,DifY} = rand_idle_diff(),
 					  io:format("fire_dead~n"),
-					  unit_server:heli_done(ServerName,MyName),
-					  {next_state, idle, {DifX,DifY},?REFRESH_SPEED}
+					  %unit_server:heli_done(ServerName,MyName),
+					  {CR,CX,CY,_A} = SensorData,
+					  {DstX,DstY} = {CR+CX,CY},
+					  NextAngle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
+					  {NextDifX,NextDifY} = calc_destination_movement_diffs(NextAngle),
+					  {next_state,move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData},?REFRESH_SPEED}
+					  %{next_state, idle, {DifX,DifY},?REFRESH_SPEED}
 	end;
 	
 extinguish(_Event, State) ->
+	io:format("bug~n"),
   {next_state, extinguish, State}.
 
  
@@ -495,6 +507,4 @@ rand_idle_diff()->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 check_frame(HX,HY,FrameX,FrameY) -> 
-	%io:format("(HX,HY,FX,FY) = ~p~n",[{HX,HY,FrameX,FrameY}]),
-	%io:format("distance from frame = ~p~n",[((HX-FrameX) * (HX-FrameX) + (HY-FrameY) * (HY-FrameY))]),
 	((HX-FrameX) * (HX-FrameX) + (HY-FrameY) * (HY-FrameY)) <16.

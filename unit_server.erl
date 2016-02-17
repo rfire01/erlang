@@ -52,9 +52,11 @@ heli_done(GenName,Name) ->
 %%====================================================================
 init([Name]) ->
     io:format("starting local_gen: ~p~n",[Name]),
-	ets:new(general_info,[set,named_table]),
-	ets:insert(general_info,{myInfo,Name}),
-	ets:new(sen_fire,[set,named_table]),
+	Ets = ets:new(general_info,[set]),
+	put(ets_id,Ets),
+	ets:insert(Ets,{myInfo,Name}),
+	Sen_fire = ets:new(sen_fire,[set]),
+	put(sen_fire_id,Sen_fire),
     {ok, initialized}.
 
 %% Synchronous, possible return values  
@@ -67,12 +69,14 @@ init([Name]) ->
 % {stop,Reason,Reply,NewState} 
 % {stop,Reason,NewState}
 handle_call({wx_request}, _From, State) -> 
-	{reply,ets:tab2list(general_info),State};
+	Ets = get(ets_id),
+	{reply,ets:tab2list(Ets),State};
 	
 handle_call({heli_fire_check,HeliName}, _From, State) -> 
-	[{{heli,_},HX,HY,_}] = ets:lookup(general_info,{heli,HeliName}),
+	Ets = get(ets_id),
+	[{{heli,_},HX,HY,_}] = ets:lookup(Ets,{heli,HeliName}),
 	
-	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(general_info), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
+	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(Ets), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
 
 	case qlc:eval(QH) of
 		[] -> Replay = false;
@@ -93,51 +97,54 @@ handle_call(Message, From, State) ->
 %% normal termination clause
 handle_cast({create,DataList}, State) ->
 	
-	[{_,MyName}] = ets:lookup(general_info,myInfo),
+	Ets = get(ets_id),
+	[{_,MyName}] = ets:lookup(Ets,myInfo),
 	
 	io:format("stoping all old fsms ~n"),
-	ObjList = ets:tab2list(general_info),
+	ObjList = ets:tab2list(Ets),
 	[gen_fsm:stop({global,H}) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
-	ets:delete_all_objects(general_info),
+	ets:delete_all_objects(Ets),
 	
-	ets:insert(general_info,{myInfo,MyName}),
+	ets:insert(Ets,{myInfo,MyName}),
 
 	io:format("insert data: ~p~n",[DataList]),
-	ets:insert(general_info,DataList),
+	ets:insert(Ets,DataList),
 	io:format("starting helicopters ~n"),
-	HeliList = ets:match(general_info,{{heli,'$1'},'$2','$3','_'}),
+	HeliList = ets:match(Ets,{{heli,'$1'},'$2','$3','_'}),
 	[heli:start(Name,MyName,X,Y) || [Name,X,Y] <- HeliList],
-	FireList = ets:match(general_info,{{fire,'$1'},'$2','$3','$4'}),
+	FireList = ets:match(Ets,{{fire,'$1'},'$2','$3','$4'}),
 	io:format("starting fires ~p~n",[FireList]),
 	[fire:start(Name,MyName,R,X,Y) || [Name,R,X,Y] <- FireList],
 	io:format("starting sensors ~n"),
-	SenList = ets:match(general_info,{{sensor,'$1'},'$2','$3','$4'}),
+	SenList = ets:match(Ets,{{sensor,'$1'},'$2','$3','$4'}),
 	[sensor:start(Name,MyName) || [Name,_,_,_] <- SenList],
     {noreply, State};
 	
 handle_cast({start_sim}, State) ->
+	Ets = get(ets_id),
 	io:format("starting simulation ~n"),
-	HeliList = ets:match(general_info,{{heli,'$1'},'_','_','_'}),
+	HeliList = ets:match(Ets,{{heli,'$1'},'_','_','_'}),
 	[heli:start_sim(Name) || [Name] <- HeliList],
-	FireList = ets:match(general_info,{{fire,'$1'},'_','_','_'}),
+	FireList = ets:match(Ets,{{fire,'$1'},'_','_','_'}),
 	[fire:start_sim(Name) || [Name] <- FireList],
-	SenList = ets:match(general_info,{{sensor,'$1'},'_','_','_'}),
+	SenList = ets:match(Ets,{{sensor,'$1'},'_','_','_'}),
 	[sensor:start_sim(Name) || [Name] <- SenList],
 	{noreply, State};
 	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
+	Ets = get(ets_id),
 	case Unit_Type of
 		heli -> [Name,X,Y]=Unit_Data,	
 				%io:format("updating helicopter:~p (~p,~p) ~p~n",[Name,X,Y,Status]),
-				[{{_,_},_,_,Status}]= ets:lookup(general_info,{heli,Name}),
-				ets:insert(general_info,{{heli,Name},X,Y,Status});
+				[{{_,_},_,_,Status}]= ets:lookup(Ets,{heli,Name}),
+				ets:insert(Ets,{{heli,Name},X,Y,Status});
 		fire -> [Name,RF]=Unit_Data,		%io:format("updating fire: ~p~n",[Name]),
-				[{{fire,_},_,XF,YF}] = ets:lookup(general_info,{fire,Name}),
-				ets:insert(general_info,{{fire,Name},RF,XF,YF}),
+				[{{fire,_},_,XF,YF}] = ets:lookup(Ets,{fire,Name}),
+				ets:insert(Ets,{{fire,Name},RF,XF,YF}),
 				
 				%%merge fires
-				QH_Merge = qlc:q([FName || {{fire,FName},F2R,F2X,F2Y} <- ets:table(general_info),
-							    FName/=Name,F2R>0,RF>0, overlappingFire(XF,YF,F2X,F2Y,RF,F2R) ]),
+				QH_Merge = qlc:q([FName || {{fire,FName},F2R,F2X,F2Y} <- ets:table(Ets),
+							    FName/=Name,F2R>0,RF>0, overlappingFire(XF,YF,F2X,F2Y,RF,F2R)==true ]),
 				
 				case qlc:eval(QH_Merge) of
 					[] -> dont_care;
@@ -146,7 +153,7 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 				end,
 				
 				%%send alerts to all servers
-				QH = qlc:q([SName || {{sensor,SName},RS,XS,YS} <- ets:table(general_info), ((XF-XS)*(XF-XS) + (YF-YS)*(YF-YS))< (RS+RF)*(RS+RF)]),
+				QH = qlc:q([SName || {{sensor,SName},RS,XS,YS} <- ets:table(Ets), ((XF-XS)*(XF-XS) + (YF-YS)*(YF-YS))< (RS+RF)*(RS+RF)]),
 
 				case qlc:eval(QH) of
 					[] -> dont_care;
@@ -157,18 +164,20 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 	{noreply, State};	
 	
 handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
-	
+	Ets = get(ets_id),
+	Sen_fire = get(sen_fire_id),
 	%io:format("requesting heli ~n"),
-	Exists = ets:member(sen_fire,{Sen_name,Fire_Name}),
+	Exists = ets:member(Sen_fire,{Sen_name,Fire_Name}),
 	case Exists of
 		true -> do_nothing;%, io:format("heli already sent ~n");
-		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(general_info)]),
+		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(Ets)]),
 				   case qlc:eval(QH)  of
 						[]-> wait_for_free_heli;%, io:format("wait_for_free_heli ~n");
-						[{Name,X,Y}|_] -> ets:insert(sen_fire,{{Sen_name,Fire_Name},true}),
-								  ets:insert(general_info,{{heli,Name},X,Y,working}),
-								  [{{_,_},SR,SX,SY}] = ets:lookup(general_info,{sensor,Sen_name}),
-								  %io:format("sending heli ~p~n",[Name]),
+
+						[{Name,X,Y}|_] -> ets:insert(Sen_fire,{{Sen_name,Fire_Name},true}),
+								  ets:insert(Ets,{{heli,Name},X,Y,working}),
+								  [{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
+								  io:format("sending heli ~p~n",[Name]),
 								  heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
 				   end
 	end,
@@ -176,8 +185,9 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 	{noreply, State};	
 					
 handle_cast({heli_done,Name}, State) ->
-	%io:format("helicopter: ~p is free ~n",[Name]),
-	ets:update_element(general_info,{heli,Name},{4,not_working}),
+	Ets = get(ets_id),
+	io:format("helicopter: ~p is free ~n",[Name]),
+	ets:update_element(Ets,{heli,Name},{4,not_working}),
 	{noreply, State};
 
 %% generic async handler
@@ -195,8 +205,9 @@ handle_info(_Message, _Server) ->
     {noreply, _Server}.
 
 %% Server termination
-terminate(_Reason, _Server) -> 
-	ObjList = ets:tab2list(general_info),
+terminate(_Reason, _Server) ->
+	Ets = get(ets_id),
+	ObjList = ets:tab2list(Ets),
 	[gen_fsm:stop({global,H}) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
     io:format("Generic termination handler: '~p' '~p'~n",[_Reason, _Server]).
 

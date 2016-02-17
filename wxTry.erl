@@ -287,15 +287,19 @@ add_unit_to_screen(heli,[X,Y],Paint) ->
 	wxBitmap:destroy(Bmp);
 	
 add_unit_to_screen(fire,[R,X,Y],Paint) ->
-	Image1 = wxImage:new("fire_1.png"),
-	Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
-	%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
-	Bmp = wxBitmap:new(Image2),
-	wxImage:destroy(Image1),
-	wxImage:destroy(Image2),
-	%%%%%%%%%%%%wxImage:destroy(Image51),
-	wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
-	wxBitmap:destroy(Bmp);
+	case 2*round(R)>0 of
+		true -> 
+				Image1 = wxImage:new("fire_1.png"),
+				Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
+				%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
+				Bmp = wxBitmap:new(Image2),
+				wxImage:destroy(Image1),
+				wxImage:destroy(Image2),
+				%%%%%%%%%%%%wxImage:destroy(Image51),
+				wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
+				wxBitmap:destroy(Bmp);
+		false -> do_nothing
+	end;
 	
 add_unit_to_screen(sensor,[R,X,Y],Paint) ->
 	wxDC:drawCircle(Paint, {X,Y}, R).

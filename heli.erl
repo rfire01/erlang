@@ -11,8 +11,6 @@
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
 -export([start_sim/1,move_dst/4,move_circle/2]).
-
--export([calc_destination_movement_diffs/4]).
  
 %%-define(SERVER, ?MODULE).
 -define(MAXX, 1200-25).
@@ -72,11 +70,12 @@ move_circle(Name,R) ->
 init([Name,ServerName,X,Y]) ->
 	%process_flag(trap_exit, true),
     Ets = ets:new(cord,[set]),
+	put(ets_id,Ets),
     ets:insert(Ets,{x,X}),
     ets:insert(Ets,{y,Y}),
-    ets:insert(Ets,{myName,Name}),
+	ets:insert(Ets,{myName,Name}),
     ets:insert(Ets,{serverName,ServerName}),
-    {ok, idle, Ets}.
+    {ok, idle, {}}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -93,7 +92,7 @@ init([Name,ServerName,X,Y]) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
-idle({idle_move}, Ets) ->
+idle({idle_move}, _State) ->
   random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 
   Xdif = ((random:uniform() * 2 - 1) * ?MOVEMENT_SPEED),
@@ -105,13 +104,14 @@ idle({idle_move}, Ets) ->
   
   DifX = Xdif * (?REFRESH_SPEED / 1000),
   DifY = Ydif * (?REFRESH_SPEED / 1000),
-  %ets:insert(Ets,{xdif,Xdif * (?REFRESH_SPEED / 1000)}),
-  %ets:insert(Ets,{ydif,Ydif * (?REFRESH_SPEED / 1000)}),
-  {next_state, idle, {DifX,DifY,Ets},?REFRESH_SPEED};
+  {next_state, idle, {DifX,DifY},?REFRESH_SPEED};
 
 
-idle(timeout, {DifX,DifY,Ets}) ->
-  {NewDifX,NewDifY}=idle_move(DifX,DifY,Ets),
+
+idle(timeout, {DifX,DifY}) ->
+  Ets = get(ets_id),
+  {NewDifX,NewDifY}=move_dif(DifX,DifY,Ets),
+
   [{_,MyName}] = ets:lookup(Ets,myName),
   [{_,ServerName}] = ets:lookup(Ets,serverName),
   [{_,CurrentX}] = ets:lookup(Ets,x),
@@ -124,33 +124,33 @@ idle(timeout, {DifX,DifY,Ets}) ->
 	%	 {next_state, idle, State,100}
   %end;
 
-  {next_state, idle, {NewDifX,NewDifY,Ets},?REFRESH_SPEED};
 
-idle({move_dst,DstX,DstY,Objective},{_,_,Ets}) ->
-	%io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
+  {next_state, idle, {NewDifX,NewDifY},?REFRESH_SPEED};
+
+idle({move_dst,DstX,DstY,Objective},_State) ->
+	Ets = get(ets_id),
+	io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
-	%case (DstX - CurrentX)/= 0 of
-	%	true -> M=(DstY-CurrentY) / (DstX - CurrentX),
-	%			N = DstY - M * DstX;
-	%	false -> M=inf, N=0
-	%end,
-	%io:format("(x,y) = (~p,~p) ; (dstx,dsty) = (~p,~p)~n",[CurrentX,CurrentY,DstX,DstY]),
-	{DifX,DifY} = calc_destination_movement_diffs(CurrentX,CurrentY,DstX,DstY),
-	{next_state,move_destination,{DifX,DifY,DstX,DstY,Objective,Ets},?REFRESH_SPEED};
-
 	
-idle({circle,R},Ets) ->
+	io:format("(x,y) = (~p,~p) ; (dstx,dsty) = (~p,~p)~n",[CurrentX,CurrentY,DstX,DstY]),
+	Angle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
+	{DifX,DifY} = calc_destination_movement_diffs(Angle),
+	{next_state,move_destination,{DifX,DifY,DstX,DstY,Objective},?REFRESH_SPEED};
+	
+idle({circle,R},_State) ->
+	Ets = get(ets_id),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	CX = CurrentX - R,
 	CY = CurrentY,
-	{next_state,search_circle,{R,CX,CY,0,Ets},?REFRESH_SPEED};
+	{next_state,search_circle,{R,CX,CY,0},?REFRESH_SPEED};
   
-idle(_Event, Ets) ->
-  {next_state, idle, Ets}.
+idle(_Event, State) ->
+  {next_state, idle, State}.
   
-move_destination(timeout,{DifX,DifY,DstX,DstY,Objective,Ets}) -> 
+move_destination(timeout,{DifX,DifY,DstX,DstY,Objective}) -> 
+	Ets = get(ets_id),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	[{_,MyName}]   = ets:lookup(Ets,myName),
@@ -162,16 +162,16 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective,Ets}) ->
 		true -> %io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
 				DifAngle = calc_angle_diff(CR),
-				{next_state,search_circle,{CR,CX,CY,A,DifAngle,Ets},?REFRESH_SPEED};
-		false -> {next_state,move_destination,{DifX,DifY,DstX,DstY,Objective,Ets},?REFRESH_SPEED}
+				{next_state,search_circle,{CR,CX,CY,A,DifAngle},?REFRESH_SPEED};
+		false -> {next_state,move_destination,{DifX,DifY,DstX,DstY,Objective},?REFRESH_SPEED}
 	end;
 	
-move_destination(_Event, Ets) ->
-  {next_state, move_destination, Ets,?REFRESH_SPEED}.
+move_destination(_Event, State) ->
+  {next_state, move_destination, State,?REFRESH_SPEED}.
   
 
-search_circle(timeout,{R,CX,CY,Angle,DifAngle,Ets}) -> 
-	%[{_,CurrentX}] = ets:lookup(cord,x),
+search_circle(timeout,{R,CX,CY,Angle,DifAngle}) -> 
+	Ets = get(ets_id),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	[{_,MyName}]   = ets:lookup(Ets,myName),
@@ -183,38 +183,76 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,Ets}) ->
 	
 	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
 		false -> 
-		    case Angle > 6.29 of 
-				true -> io:format("finished circle~n"),
-						{DifX,DifY} = rand_idle_diff(),
-						{next_state,idle,{DifX,DifY,Ets},?REFRESH_SPEED};
-				false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,Ets},?REFRESH_SPEED}
-		    end;
+				case Angle > 6.29 of 
+					true -> io:format("finished circle~n"),
+							{DifX,DifY} = rand_idle_diff(),
+							{next_state,idle,{DifX,DifY},?REFRESH_SPEED};
+					false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle},?REFRESH_SPEED}
+				end;
 		    
 		[NF,RF,XF,YF] -> io:format("found fire [~p,~p,~p,~p]~n",[NF,RF,XF,YF]),
-			      {next_state,extinguish,{NF,RF,XF,YF,Ets},?EXTINGUISH_SPEED}
+						StartAngle = calc_destination_angle(CurrentX,CurrentY,XF,YF),
+						FrameX = RF * math:cos(StartAngle)+ XF,
+						FrameY = RF * math:sin(StartAngle)+ YF,
+						case check_frame(CurrentX,CurrentY,FrameX,FrameY) of
+							true -> {next_state,extinguish,{circle,NF,RF,XF,YF,StartAngle},?EXTINGUISH_SPEED};
+							false -> {DifX,DifY} = calc_destination_movement_diffs(StartAngle),
+									 {next_state,extinguish,{straight,-1*DifX,-1*DifY,NF,XF,YF,StartAngle},?EXTINGUISH_SPEED}
+						end
 	end;
 		
 
 	
-search_circle(_Event, Ets) ->
-  {next_state, move_destination, Ets}.
-  
-extinguish(timeout,{N,R,X,Y,Ets}) -> 
+search_circle(_Event, State) ->
+  {next_state, move_destination, State}.
+
+extinguish(timeout,{circle,N,R,X,Y,Angle}) -> 
+	Ets = get(ets_id),
+	step_circle(X,Y,R,Angle,Ets),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	[{_,MyName}]   = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
-	case fire:extinguish_fire(N)of
-	    fire_alive-> {next_state,extinguish,{N,R,X,Y,Ets},?EXTINGUISH_SPEED};
+	{FireState,NewR} = fire:extinguish_fire(N),
+	DifAngle = calc_angle_diff(R),
+	
+	case FireState of
+	    fire_alive-> {next_state,extinguish,{circle,N,NewR,X,Y,Angle + DifAngle},?EXTINGUISH_SPEED};
 	    fire_dead->  {DifX,DifY} = rand_idle_diff(),
-			  io:format("fire_dead~n"),
-			  unit_server:heli_done(ServerName,MyName),
-			  {next_state, idle, {DifX,DifY,Ets},?REFRESH_SPEED}
+					  io:format("fire_dead~n"),
+					  unit_server:heli_done(ServerName,MyName),
+					  {next_state, idle, {DifX,DifY},?REFRESH_SPEED}
 	end;
 	
-extinguish(_Event, Ets) ->
-  {next_state, extinguish, Ets}.
+	
+  
+extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle}) -> 
+	Ets = get(ets_id),
+	move_dif(DifX,DifY,Ets),
+	[{_,CurrentX}] = ets:lookup(Ets,x),
+	[{_,CurrentY}] = ets:lookup(Ets,y),
+	[{_,MyName}]   = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
+	{FireState,NewR} = fire:extinguish_fire(NF),
+	
+	FrameX = NewR * math:cos(Angle)+ XF,
+	FrameY = NewR * math:sin(Angle) + YF,
+	
+	case FireState of
+	    fire_alive-> case check_frame(CurrentX,CurrentY,FrameX,FrameY) of
+						true -> {next_state,extinguish,{circle,NF,NewR,XF,YF,Angle},?EXTINGUISH_SPEED};
+						false -> {next_state,extinguish,{straight,DifX,DifY,NF,XF,YF,Angle},?EXTINGUISH_SPEED}
+					 end;
+	    fire_dead->  {DifX,DifY} = rand_idle_diff(),
+					  io:format("fire_dead~n"),
+					  unit_server:heli_done(ServerName,MyName),
+					  {next_state, idle, {DifX,DifY},?REFRESH_SPEED}
+	end;
+	
+extinguish(_Event, State) ->
+  {next_state, extinguish, State}.
 
  
 %%--------------------------------------------------------------------
@@ -235,21 +273,17 @@ extinguish(_Event, Ets) ->
 %%                   {stop, Reason, Reply, NewState}
 %% @end
 %%--------------------------------------------------------------------
-idle(_Event, _From, Ets) ->
+idle(_Event, _From, State) ->
   Reply = {error, invalid_message},
-  {reply, Reply, idle, Ets}.
+  {reply, Reply, idle, State}.
   
-move_destination(_Event, _From, Ets) ->
+move_destination(_Event, _From, State) ->
   Reply = {error, invalid_message},
-  {reply, Reply, move_destination, Ets}.
+  {reply, Reply, move_destination, State}.
   
-search_circle(_Event, _From, Ets) ->
+search_circle(_Event, _From, State) ->
   Reply = {error, invalid_message},
-  {reply, Reply, search_circle, Ets}.
-  
-% extinguish(_Event, _From, Ets) ->
-%   Reply = {error, invalid_message},
-%   {reply, Reply, extinguish, Ets}.
+  {reply, Reply, search_circle, State}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -264,8 +298,8 @@ search_circle(_Event, _From, Ets) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
-handle_event(_Event, StateName, Ets) ->
-    {next_state, StateName, Ets}.
+handle_event(_Event, StateName, State) ->
+    {next_state, StateName, State}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -283,9 +317,9 @@ handle_event(_Event, StateName, Ets) ->
 %%                   {stop, Reason, Reply, NewState}
 %% @end
 %%--------------------------------------------------------------------
-handle_sync_event(_Event, _From, StateName, Ets) ->
+handle_sync_event(_Event, _From, StateName, State) ->
     Reply = ok,
-    {reply, Reply, StateName, Ets}.
+    {reply, Reply, StateName, State}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -300,8 +334,8 @@ handle_sync_event(_Event, _From, StateName, Ets) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(_Info, StateName, Ets) ->
-    {next_state, StateName, Ets}.
+handle_info(_Info, StateName, State) ->
+    {next_state, StateName, State}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -314,7 +348,7 @@ handle_info(_Info, StateName, Ets) ->
 %% @spec terminate(Reason, StateName, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(_Reason, _StateName, _Ets) ->
+terminate(_Reason, _StateName, _State) ->
     ok.
  
 %%--------------------------------------------------------------------
@@ -326,14 +360,14 @@ terminate(_Reason, _StateName, _Ets) ->
 %%                   {ok, StateName, NewState}
 %% @end
 %%--------------------------------------------------------------------
-code_change(_OldVsn, StateName, Ets, _Extra) ->
-    {ok, StateName, Ets}.
+code_change(_OldVsn, StateName, State, _Extra) ->
+    {ok, StateName, State}.
  
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-idle_move(DifX,DifY,Ets) ->
+move_dif(DifX,DifY,Ets) ->
   %[{_,DifX}] = ets:lookup(Ets,xdif),
   %[{_,DifY}] = ets:lookup(Ets,ydif),
   [{_,CurrentX}] = ets:lookup(Ets,x),
@@ -372,7 +406,7 @@ idle_move(DifX,DifY,Ets) ->
   
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-calc_destination_movement_diffs(X,Y,DstX,DstY) ->
+calc_destination_angle(X,Y,DstX,DstY) ->
 	DeltaX = X - DstX,
 	DeltaY = Y - DstY,
 	S = math:sqrt(DeltaX * DeltaX + DeltaY * DeltaY),
@@ -386,13 +420,16 @@ calc_destination_movement_diffs(X,Y,DstX,DstY) ->
 					false -> Angle = math:asin((DstY-Y)/S) + math:pi(),io:format("III~n")
 				 end
 	end,
-	Travel_time = S / ?MOVEMENT_SPEED,
-	Ticks_required = 1000 * Travel_time / ?REFRESH_SPEED,
-	Dif = S / Ticks_required,
-	%io:format("dif = ~p, angle = ~p~n",[Dif,Angle/math:pi()*180]),
+	
+	Angle.
+	
+calc_destination_movement_diffs(Angle) -> 
+	%Travel_time = S / ?MOVEMENT_SPEED,
+	%Ticks_required = 1000 * Travel_time / ?REFRESH_SPEED,
+	%Dif = S / Ticks_required,
+	Dif = ?MOVEMENT_SPEED * ?REFRESH_SPEED / 1000,
 	DifX = -1* Dif * math:cos(Angle),
 	DifY = -1 * Dif * math:sin(Angle),
-	%io:format("distance = ~p, difs = ~p~n",[S,{DifX,DifY}]),
 	{DifX,DifY}.
 	
 
@@ -416,45 +453,6 @@ step_dest(X,Y,DstX,DstY,DifX,DifY,Ets) ->
 	ets:insert(Ets,{y,NewY}),
 	Res.
 
-%step_dest(X,Y,M,N,DstX,DstY,Ets) -> 
-%	case M /= inf of	
-%		true ->case M =< 1 of
-%				true -> case abs(DstX-X) < 1 of
-%							true -> Step = abs(DstX-X);
-%							false -> Step = 1
-%						end,
-%						case DstX > X of
-%							true -> NewX = X + Step,
-%									NewY = M*(X+Step) +N;
-%							false -> NewX = X - Step,
-%									 NewY = M*(X-Step) +N
-%						end;
-%				false -> case abs(DstY-Y) < 1 of
-%							true -> Step = abs(DstY-Y);
-%							false -> Step = 1
-%						 end,
-%						 case DstY > Y of
-%							true -> NewX = (Y+Step-N)/M,
-%									NewY = Y + Step;
-%							false -> NewX = (Y-Step-N)/M,
-%									 NewY = Y - Step
-%						 end
-%			end;
-%		false -> case abs(DstY-Y) < 1 of
-%					true -> Step = abs(DstY-Y);
-%%					false -> Step = 1
-	%			 end,
-	%			 case DstY > Y of
-	%				true -> NewY = Y + Step;
-	%				false -> NewY = Y - Step
-	%			 end,
-	%			 NewX = X
-%	end,
-%	ets:insert(Ets,{x,NewX}),
-%	ets:insert(Ets,{y,NewY}),
-%	io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]),
-%	((abs(DstX - X) < 0.000001) and (abs(DstY - Y) < 0.000001)).
-%	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 calc_angle_diff(R) ->
@@ -493,3 +491,9 @@ rand_idle_diff()->
   DifY = Ydif * (?REFRESH_SPEED / 1000),
   {DifX,DifY}.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+check_frame(HX,HY,FrameX,FrameY) -> 
+	%io:format("(HX,HY,FX,FY) = ~p~n",[{HX,HY,FrameX,FrameY}]),
+	%io:format("distance from frame = ~p~n",[((HX-FrameX) * (HX-FrameX) + (HY-FrameY) * (HY-FrameY))]),
+	((HX-FrameX) * (HX-FrameX) + (HY-FrameY) * (HY-FrameY)) <16.

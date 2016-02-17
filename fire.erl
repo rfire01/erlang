@@ -155,8 +155,10 @@ idle({decrease},_From,State) ->
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("new Radius = ~p~n",[NewRad]),
 	case NewRad == 0 of
-		true -> io:format("fire extinguished~n"), {reply, fire_dead, fire_out, State, 100};
-		false -> {reply, fire_alive, idle, State, ?FIRE_REFRESH_SPEED}
+
+		true -> io:format("fire extinguished~n"), {reply, {fire_dead,NewRad}, fire_out, State};
+		false -> {reply, {fire_alive,NewRad}, idle, State, ?FIRE_REFRESH_SPEED}
+
 	end; 
  
 idle(_Event, _From, State) ->
@@ -164,7 +166,7 @@ idle(_Event, _From, State) ->
   {reply, Reply, idle, State}.
   
 fire_out(_Event, _From, State) ->
-  {reply, fire_dead, fire_out, State}.
+  {reply, {fire_dead,0}, fire_out, State}.
  
 %%--------------------------------------------------------------------
 %% @private

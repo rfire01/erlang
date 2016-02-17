@@ -20,7 +20,7 @@
 -export([init/1,handle_call/3,handle_cast/2,
          handle_info/2,terminate/2, code_change/3]).
 		 
-
+-define(OVERLAP_PERC, 90).
 %%====================================================================
 %% Server interface
 %%====================================================================
@@ -135,6 +135,16 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 				[{{fire,_},_,XF,YF}] = ets:lookup(general_info,{fire,Name}),
 				ets:insert(general_info,{{fire,Name},RF,XF,YF}),
 				
+				%%merge fires
+				QH_Merge = qlc:q([FName || {{fire,FName},F2R,F2X,F2Y} <- ets:table(general_info),
+							    FName/=Name,F2R>0,RF>0, overlappingFire(XF,YF,F2X,F2Y,RF,F2R) ]),
+				
+				case qlc:eval(QH_Merge) of
+					[] -> dont_care;
+ 					_Any ->%io:format("QH_Merge:~p ~n",[qlc:eval(QH_Merge)]),
+ 					fire:merge(Name)		
+				end,
+				
 				%%send alerts to all servers
 				QH = qlc:q([SName || {{sensor,SName},RS,XS,YS} <- ets:table(general_info), ((XF-XS)*(XF-XS) + (YF-YS)*(YF-YS))< (RS+RF)*(RS+RF)]),
 
@@ -142,6 +152,7 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 					[] -> dont_care;
 					SensorList -> [ sensor:new_alert(Sen,Name) || Sen <- SensorList]%, io:format("sensor activated ~p~n",[SensorList])
 				end
+				
 	end,
 	{noreply, State};	
 	
@@ -157,7 +168,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 						[{Name,X,Y}|_] -> ets:insert(sen_fire,{{Sen_name,Fire_Name},true}),
 								  ets:insert(general_info,{{heli,Name},X,Y,working}),
 								  [{{_,_},SR,SX,SY}] = ets:lookup(general_info,{sensor,Sen_name}),
-								  io:format("sending heli ~p~n",[Name]),
+								  %io:format("sending heli ~p~n",[Name]),
 								  heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
 				   end
 	end,
@@ -165,7 +176,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 	{noreply, State};	
 					
 handle_cast({heli_done,Name}, State) ->
-	io:format("helicopter: ~p is free ~n",[Name]),
+	%io:format("helicopter: ~p is free ~n",[Name]),
 	ets:update_element(general_info,{heli,Name},{4,not_working}),
 	{noreply, State};
 
@@ -195,4 +206,23 @@ code_change(_OldVersion, _Server, _Extra) -> {ok, _Server}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+overlappingFire(X1,Y1,X2,Y2,R1,R2)->
+    case ((X1-X2)*(X1-X2) + (Y1-Y2)*(Y1-Y2)) =< (R2+R1)*(R2+R1) of
+	    true->  Dis= math:sqrt((X1-X2)*(X1-X2)+(Y1-Y2)*(Y1-Y2)),
+		    %io:format("Dis: ~p ~n",[Dis]),
+		    CosA= ((Dis*Dis)+(R1*R1)-(R2*R2))/(2*Dis*R1),
+		    %io:format("CosA: ~p ,",[CosA]),
+		    CosB= ((Dis*Dis)+(R2*R2)-(R1*R1))/(2*Dis*R2),
+		    %io:format("CosB: ~p ~n",[CosB]),
+		    SinA=2*math:acos(CosA),
+		    SinB=2*math:acos(CosB),
+		    Over=(R1*R1*math:acos(CosA))-(0.5*R1*R1*math:sin(SinA))+(R2*R2*math:acos(CosB))-(0.5*R2*R2*math:sin(SinB)),
+		    Ans= Over*100/(math:pi()*R1*R1)>?OVERLAP_PERC,
+		    io:format("Over: ~p ; S: ~p ; precent = ~p  ~n",[Over,math:pi()*R1*R1, Over*100/(math:pi()*R1*R1)]),
+		    Ans;
+	    false->false
+    end.
+		    
+    %Temp = math:acos(math:cos(Rad)).
+    %Temp * 180 / math:pi()==Deg.
 	

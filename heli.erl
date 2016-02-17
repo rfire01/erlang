@@ -15,14 +15,14 @@
 -export([calc_destination_movement_diffs/4]).
  
 %%-define(SERVER, ?MODULE).
--define(MAXX, 1200).
--define(MINX, 200).
--define(MAXY, 556).
--define(MINY, 200).
+-define(MAXX, 1200-25).
+-define(MINX, 0-25).
+-define(MAXY, 556-25).
+-define(MINY, 0-25).
 
--define(MOVEMENT_SPEED,70).
+-define(MOVEMENT_SPEED,100).
 -define(REFRESH_SPEED,10).
--define(EXTINGUISH_SPEED,90).
+-define(EXTINGUISH_SPEED,40).
 
  
 %-record(state, {hor,ver}).
@@ -111,7 +111,7 @@ idle({idle_move}, Ets) ->
 
 
 idle(timeout, {DifX,DifY,Ets}) ->
-  idle_move(DifX,DifY,Ets),
+  {NewDifX,NewDifY}=idle_move(DifX,DifY,Ets),
   [{_,MyName}] = ets:lookup(Ets,myName),
   [{_,ServerName}] = ets:lookup(Ets,serverName),
   [{_,CurrentX}] = ets:lookup(Ets,x),
@@ -124,10 +124,10 @@ idle(timeout, {DifX,DifY,Ets}) ->
 	%	 {next_state, idle, State,100}
   %end;
 
-  {next_state, idle, {DifX,DifY,Ets},?REFRESH_SPEED};
+  {next_state, idle, {NewDifX,NewDifY,Ets},?REFRESH_SPEED};
 
 idle({move_dst,DstX,DstY,Objective},{_,_,Ets}) ->
-	io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
+	%io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	%case (DstX - CurrentX)/= 0 of
@@ -135,7 +135,7 @@ idle({move_dst,DstX,DstY,Objective},{_,_,Ets}) ->
 	%			N = DstY - M * DstX;
 	%	false -> M=inf, N=0
 	%end,
-	io:format("(x,y) = (~p,~p) ; (dstx,dsty) = (~p,~p)~n",[CurrentX,CurrentY,DstX,DstY]),
+	%io:format("(x,y) = (~p,~p) ; (dstx,dsty) = (~p,~p)~n",[CurrentX,CurrentY,DstX,DstY]),
 	{DifX,DifY} = calc_destination_movement_diffs(CurrentX,CurrentY,DstX,DstY),
 	{next_state,move_destination,{DifX,DifY,DstX,DstY,Objective,Ets},?REFRESH_SPEED};
 
@@ -159,7 +159,7 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective,Ets}) ->
 	Arrived = step_dest(CurrentX,CurrentY,DstX,DstY,DifX,DifY,Ets),
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	case Arrived of
-		true -> io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
+		true -> %io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
 				DifAngle = calc_angle_diff(CR),
 				{next_state,search_circle,{CR,CX,CY,A,DifAngle,Ets},?REFRESH_SPEED};
@@ -179,7 +179,7 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,Ets}) ->
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	step_circle(CX,CY,R,Angle,Ets),
 	
-	io:format("new angle = ~p~n", [Angle]),
+	%io:format("new angle = ~p~n", [Angle]),
 	
 	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
 		false -> 
@@ -343,29 +343,30 @@ idle_move(DifX,DifY,Ets) ->
   case DifX > 0 of
 	true -> 
 		case ?MAXX - NewX < 1 of
-			true -> ets:insert(Ets,{xdif,-1*DifX});
-			false -> same_dir
+			true -> NewDifX=-1*DifX;
+			false -> NewDifX=DifX
 		end;
 	false ->
 		case NewX - ?MINX < 1 of
-			true -> ets:insert(Ets,{xdif,-1*DifX});
-			false -> same_dir
+			true -> NewDifX=-1*DifX;
+			false -> NewDifX=DifX
 		end
   end,
   case DifY > 0 of
 	true -> 
 		case ?MAXY - NewY < 1 of
-			true -> ets:insert(Ets,{ydif,-1*DifY});
-			false -> same_dir
+			true -> NewDifY=-1*DifY;
+			false -> NewDifY=DifY
 		end;
 	false -> 
 		case NewY - ?MINY < 1 of
-			true -> ets:insert(Ets,{ydif,-1*DifY});
-			false -> same_dir
+			true -> NewDifY=-1*DifY;
+			false -> NewDifY=DifY
 		end
   end,
   ets:insert(Ets,{x,NewX}),
-  ets:insert(Ets,{y,NewY}).
+  ets:insert(Ets,{y,NewY}),
+  {NewDifX,NewDifY}.
   %io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]).
   
   

@@ -7,15 +7,15 @@
 -export([start/0, init/1, terminate/2,  code_change/3,
 	 handle_info/2, handle_call/3, handle_cast/2, handle_event/2]).
 	 
-	 
+-include("config.hrl").	 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--define(Horizontal,				1200).
--define(Vertical,				556).
+%-define(Horizontal,				1200).
+%-define(Vertical,				556).
 
--define(FireDefaultRadius, 50).
--define(SensorRadius, 50).
--define(HELI_PIC_SIZE, 50).
--define(HELI_PIC_HALF, round(?HELI_PIC_SIZE/2)).
+%-define(FireDefaultRadius, 50).
+%-define(SensorRadius, 50).
+%-define(HELI_PIC_SIZE, 50).
+%-define(HELI_PIC_HALF, round(?HELI_PIC_SIZE/2)).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -record(state, 
@@ -187,7 +187,7 @@ handle_event(Ev = #wx{}, State = #state{}) ->
 %% Callbacks handled as normal gen_server callbacks
 
 handle_info(refresh,State=#state{})->
-	Updated_list = gen_server:call({global,full},{wx_request}),
+	Updated_list = unit_server:wx_update(full),
 	ets:delete_all_objects(State#state.ets_name),
 	ets:insert(State#state.ets_name,Updated_list),
 	wxWindow:refresh(State#state.parent,[{eraseBackground,false}]),

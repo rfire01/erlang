@@ -12,7 +12,7 @@
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
 -export([start_sim/1,new_alert/2]).
- 
+-include("config.hrl").
 %%-define(SERVER, ?MODULE).
  
 %-record(state, {code}).

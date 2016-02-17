@@ -11,16 +11,16 @@
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
 -export([start_sim/1,move_dst/4,move_circle/2]).
- 
+-include("config.hrl").
 %%-define(SERVER, ?MODULE).
--define(MAXX, 1200-25).
--define(MINX, 0-25).
--define(MAXY, 556-25).
--define(MINY, 0-25).
-
--define(MOVEMENT_SPEED,100).
--define(REFRESH_SPEED,10).
--define(EXTINGUISH_SPEED,40).
+% -define(MAXX, 1200-25).
+% -define(MINX, 0-25).
+% -define(MAXY, 556-25).
+% -define(MINY, 0-25).
+% 
+% -define(MOVEMENT_SPEED,100).
+% -define(REFRESH_SPEED,10).
+% -define(EXTINGUISH_SPEED,40).
 
  
 %-record(state, {hor,ver}).
@@ -181,7 +181,8 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,SensorData}) ->
 	
 	%io:format("new angle = ~p~n", [Angle]),
 	
-	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
+	%case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
+	case unit_server:fire_check(ServerName,MyName) of
 		false -> 
 				case Angle > 6.29 of 
 					true -> io:format("finished circle~n"),

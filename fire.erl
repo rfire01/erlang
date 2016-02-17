@@ -155,7 +155,7 @@ idle(_Event, _From, State) ->
   {reply, Reply, idle, State}.
   
 fire_out(_Event, _From, State) ->
-  {reply, fire_dead, fire_out, State}.
+  {reply, {fire_dead,0}, fire_out, State}.
  
 %%--------------------------------------------------------------------
 %% @private

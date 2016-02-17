@@ -450,45 +450,6 @@ step_dest(X,Y,DstX,DstY,DifX,DifY,Ets) ->
 	ets:insert(Ets,{y,NewY}),
 	Res.
 
-%step_dest(X,Y,M,N,DstX,DstY,Ets) -> 
-%	case M /= inf of	
-%		true ->case M =< 1 of
-%				true -> case abs(DstX-X) < 1 of
-%							true -> Step = abs(DstX-X);
-%							false -> Step = 1
-%						end,
-%						case DstX > X of
-%							true -> NewX = X + Step,
-%									NewY = M*(X+Step) +N;
-%							false -> NewX = X - Step,
-%									 NewY = M*(X-Step) +N
-%						end;
-%				false -> case abs(DstY-Y) < 1 of
-%							true -> Step = abs(DstY-Y);
-%							false -> Step = 1
-%						 end,
-%						 case DstY > Y of
-%							true -> NewX = (Y+Step-N)/M,
-%									NewY = Y + Step;
-%							false -> NewX = (Y-Step-N)/M,
-%									 NewY = Y - Step
-%						 end
-%			end;
-%		false -> case abs(DstY-Y) < 1 of
-%					true -> Step = abs(DstY-Y);
-%%					false -> Step = 1
-	%			 end,
-	%			 case DstY > Y of
-	%				true -> NewY = Y + Step;
-	%				false -> NewY = Y - Step
-	%			 end,
-	%			 NewX = X
-%	end,
-%	ets:insert(Ets,{x,NewX}),
-%	ets:insert(Ets,{y,NewY}),
-%	io:format("new (x,y) = (~p,~p)~n",[NewX,NewY]),
-%	((abs(DstX - X) < 0.000001) and (abs(DstY - Y) < 0.000001)).
-%	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 calc_angle_diff(R) ->

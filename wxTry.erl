@@ -289,7 +289,7 @@ add_unit_to_screen(heli,[X,Y],Paint) ->
 add_unit_to_screen(fire,[R,X,Y],Paint) ->
 	case 2*round(R)>0 of
 		true -> 
-				Image1 = wxImage:new("fire_1.png"),
+				Image1 = wxImage:new("fire_2.png"),
 				Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
 				%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
 				Bmp = wxBitmap:new(Image2),

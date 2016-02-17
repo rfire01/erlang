@@ -11,8 +11,6 @@
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
 -export([start_sim/1,move_dst/4,move_circle/2]).
-
--export([calc_destination_movement_diffs/4]).
  
 %%-define(SERVER, ?MODULE).
 -define(MAXX, 1200).
@@ -20,7 +18,7 @@
 -define(MAXY, 556).
 -define(MINY, 200).
 
--define(MOVEMENT_SPEED,70).
+-define(MOVEMENT_SPEED,100).
 -define(REFRESH_SPEED,10).
 -define(EXTINGUISH_SPEED,90).
 
@@ -111,7 +109,7 @@ idle({idle_move}, Ets) ->
 
 
 idle(timeout, {DifX,DifY,Ets}) ->
-  idle_move(DifX,DifY,Ets),
+  move_dif(DifX,DifY,Ets),
   [{_,MyName}] = ets:lookup(Ets,myName),
   [{_,ServerName}] = ets:lookup(Ets,serverName),
   [{_,CurrentX}] = ets:lookup(Ets,x),
@@ -136,7 +134,8 @@ idle({move_dst,DstX,DstY,Objective},{_,_,Ets}) ->
 	%	false -> M=inf, N=0
 	%end,
 	io:format("(x,y) = (~p,~p) ; (dstx,dsty) = (~p,~p)~n",[CurrentX,CurrentY,DstX,DstY]),
-	{DifX,DifY} = calc_destination_movement_diffs(CurrentX,CurrentY,DstX,DstY),
+	Angle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
+	{DifX,DifY} = calc_destination_movement_diffs(Angle),
 	{next_state,move_destination,{DifX,DifY,DstX,DstY,Objective,Ets},?REFRESH_SPEED};
 
 	
@@ -183,34 +182,70 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,Ets}) ->
 	
 	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
 		false -> 
-		    case Angle > 6.29 of 
-				true -> io:format("finished circle~n"),
-						{DifX,DifY} = rand_idle_diff(),
-						{next_state,idle,{DifX,DifY,Ets},?REFRESH_SPEED};
-				false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,Ets},?REFRESH_SPEED}
-		    end;
+				case Angle > 6.29 of 
+					true -> io:format("finished circle~n"),
+							{DifX,DifY} = rand_idle_diff(),
+							{next_state,idle,{DifX,DifY,Ets},?REFRESH_SPEED};
+					false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,Ets},?REFRESH_SPEED}
+				end;
 		    
 		[NF,RF,XF,YF] -> io:format("found fire [~p,~p,~p,~p]~n",[NF,RF,XF,YF]),
-			      {next_state,extinguish,{NF,RF,XF,YF,Ets},?EXTINGUISH_SPEED}
+						StartAngle = calc_destination_angle(CurrentX,CurrentY,XF,YF),
+						FrameX = RF * math:cos(StartAngle)+ XF,
+						FrameY = RF * math:sin(StartAngle)+ YF,
+						case check_frame(CurrentX,CurrentY,FrameX,FrameY) of
+							true -> {next_state,extinguish,{circle,NF,RF,XF,YF,StartAngle,Ets},?EXTINGUISH_SPEED};
+							false -> {DifX,DifY} = calc_destination_movement_diffs(StartAngle),
+									 {next_state,extinguish,{straight,-1*DifX,-1*DifY,NF,XF,YF,StartAngle,Ets},?EXTINGUISH_SPEED}
+						end
 	end;
 		
 
 	
 search_circle(_Event, Ets) ->
   {next_state, move_destination, Ets}.
-  
-extinguish(timeout,{N,R,X,Y,Ets}) -> 
+
+extinguish(timeout,{circle,N,R,X,Y,Angle,Ets}) -> 
+	step_circle(X,Y,R,Angle,Ets),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	[{_,MyName}]   = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
-	case fire:extinguish_fire(N)of
-	    fire_alive-> {next_state,extinguish,{N,R,X,Y,Ets},?EXTINGUISH_SPEED};
+	{FireState,NewR} = fire:extinguish_fire(N),
+	DifAngle = calc_angle_diff(R),
+	
+	case FireState of
+	    fire_alive-> {next_state,extinguish,{circle,N,NewR,X,Y,Angle + DifAngle,Ets},?EXTINGUISH_SPEED};
 	    fire_dead->  {DifX,DifY} = rand_idle_diff(),
-			  io:format("fire_dead~n"),
-			  unit_server:heli_done(ServerName,MyName),
-			  {next_state, idle, {DifX,DifY,Ets},?REFRESH_SPEED}
+					  io:format("fire_dead~n"),
+					  unit_server:heli_done(ServerName,MyName),
+					  {next_state, idle, {DifX,DifY,Ets},?REFRESH_SPEED}
+	end;
+	
+	
+  
+extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle,Ets}) -> 
+	move_dif(DifX,DifY,Ets),
+	[{_,CurrentX}] = ets:lookup(Ets,x),
+	[{_,CurrentY}] = ets:lookup(Ets,y),
+	[{_,MyName}]   = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
+	{FireState,NewR} = fire:extinguish_fire(NF),
+	
+	FrameX = NewR * math:cos(Angle)+ XF,
+	FrameY = NewR * math:sin(Angle) + YF,
+	
+	case FireState of
+	    fire_alive-> case check_frame(CurrentX,CurrentY,FrameX,FrameY) of
+						true -> {next_state,extinguish,{circle,NF,NewR,XF,YF,Angle,Ets},?EXTINGUISH_SPEED};
+						false -> {next_state,extinguish,{straight,DifX,DifY,NF,XF,YF,Angle,Ets},?EXTINGUISH_SPEED}
+					 end;
+	    fire_dead->  {DifX,DifY} = rand_idle_diff(),
+					  io:format("fire_dead~n"),
+					  unit_server:heli_done(ServerName,MyName),
+					  {next_state, idle, {DifX,DifY,Ets},?REFRESH_SPEED}
 	end;
 	
 extinguish(_Event, Ets) ->
@@ -333,7 +368,7 @@ code_change(_OldVsn, StateName, Ets, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-idle_move(DifX,DifY,Ets) ->
+move_dif(DifX,DifY,Ets) ->
   %[{_,DifX}] = ets:lookup(Ets,xdif),
   %[{_,DifY}] = ets:lookup(Ets,ydif),
   [{_,CurrentX}] = ets:lookup(Ets,x),
@@ -371,7 +406,7 @@ idle_move(DifX,DifY,Ets) ->
   
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-calc_destination_movement_diffs(X,Y,DstX,DstY) ->
+calc_destination_angle(X,Y,DstX,DstY) ->
 	DeltaX = X - DstX,
 	DeltaY = Y - DstY,
 	S = math:sqrt(DeltaX * DeltaX + DeltaY * DeltaY),
@@ -385,13 +420,16 @@ calc_destination_movement_diffs(X,Y,DstX,DstY) ->
 					false -> Angle = math:asin((DstY-Y)/S) + math:pi(),io:format("III~n")
 				 end
 	end,
-	Travel_time = S / ?MOVEMENT_SPEED,
-	Ticks_required = 1000 * Travel_time / ?REFRESH_SPEED,
-	Dif = S / Ticks_required,
-	%io:format("dif = ~p, angle = ~p~n",[Dif,Angle/math:pi()*180]),
+	
+	Angle.
+	
+calc_destination_movement_diffs(Angle) -> 
+	%Travel_time = S / ?MOVEMENT_SPEED,
+	%Ticks_required = 1000 * Travel_time / ?REFRESH_SPEED,
+	%Dif = S / Ticks_required,
+	Dif = ?MOVEMENT_SPEED * ?REFRESH_SPEED / 1000,
 	DifX = -1* Dif * math:cos(Angle),
 	DifY = -1 * Dif * math:sin(Angle),
-	%io:format("distance = ~p, difs = ~p~n",[S,{DifX,DifY}]),
 	{DifX,DifY}.
 	
 
@@ -492,3 +530,9 @@ rand_idle_diff()->
   DifY = Ydif * (?REFRESH_SPEED / 1000),
   {DifX,DifY}.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+check_frame(HX,HY,FrameX,FrameY) -> 
+	%io:format("(HX,HY,FX,FY) = ~p~n",[{HX,HY,FrameX,FrameY}]),
+	%io:format("distance from frame = ~p~n",[((HX-FrameX) * (HX-FrameX) + (HY-FrameY) * (HY-FrameY))]),
+	((HX-FrameX) * (HX-FrameX) + (HY-FrameY) * (HY-FrameY)) <16.

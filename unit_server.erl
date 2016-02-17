@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 % interface calls
--export([start/1,create/2,update/3,heli_request/3,heli_done/2,
+-export([start/1,create/2,update/3,heli_request/3,heli_done/2,fire_check/2,wx_update/1,
 		 start_sim/1]).
     
 % gen_server callbacks
@@ -46,7 +46,12 @@ heli_request(GenName,Sname,Fname) ->
 heli_done(GenName,Name) -> 
     gen_server:cast({global, GenName}, {heli_done,Name}).
 
-
+fire_check(GenName,Name) -> 
+   gen_server:call({global,GenName},{heli_fire_check,Name}).
+   
+wx_update(GenName) ->
+  gen_server:call({global,GenName},{wx_request}).
+  
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
@@ -82,7 +87,6 @@ handle_call({heli_fire_check,HeliName}, _From, State) ->
 		[] -> Replay = false;
 		FireList -> [Replay|_] = FireList
 	end,
-
 	{reply,Replay,State};
 
 handle_call(Message, From, State) -> 
@@ -229,7 +233,7 @@ overlappingFire(X1,Y1,X2,Y2,R1,R2)->
 		    SinB=2*math:acos(CosB),
 		    Over=(R1*R1*math:acos(CosA))-(0.5*R1*R1*math:sin(SinA))+(R2*R2*math:acos(CosB))-(0.5*R2*R2*math:sin(SinB)),
 		    Ans= Over*100/(math:pi()*R1*R1)>?OVERLAP_PERC,
-		    io:format("Over: ~p ; S: ~p ; precent = ~p  ~n",[Over,math:pi()*R1*R1, Over*100/(math:pi()*R1*R1)]),
+		   % io:format("Over: ~p ; S: ~p ; precent = ~p  ~n",[Over,math:pi()*R1*R1, Over*100/(math:pi()*R1*R1)]),
 		    Ans;
 	    false->false
     end.

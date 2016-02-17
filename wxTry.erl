@@ -187,7 +187,7 @@ handle_event(Ev = #wx{}, State = #state{}) ->
 %% Callbacks handled as normal gen_server callbacks
 
 handle_info(refresh,State=#state{})->
-	Updated_list = gen_server:call({global,full},{wx_request}),
+	Updated_list = unit_server:wx_update(full),
 	ets:delete_all_objects(State#state.ets_name),
 	ets:insert(State#state.ets_name,Updated_list),
 	wxWindow:refresh(State#state.parent,[{eraseBackground,false}]),

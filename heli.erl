@@ -181,7 +181,8 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle}) ->
 	
 	%io:format("new angle = ~p~n", [Angle]),
 	
-	case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
+	%case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
+	case unit_server:fire_check(ServerName,MyName) of
 		false -> 
 				case Angle > 6.29 of 
 					true -> io:format("finished circle~n"),

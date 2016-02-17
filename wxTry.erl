@@ -14,6 +14,8 @@
 
 -define(FireDefaultRadius, 50).
 -define(SensorRadius, 50).
+-define(HELI_PIC_SIZE, 50).
+-define(HELI_PIC_HALF, round(?HELI_PIC_SIZE/2)).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -record(state, 
@@ -117,6 +119,7 @@ do_init(Server) ->
 					wxBufferedPaintDC:destroy(Paint) end,					
 	wxFrame:connect(Panel, paint, [{callback,OnPaint}]),%%connect paint event to panel with callbakc function OnPaint
 	
+	%io:format("########### ~p ##############3 ~n",[global:whereis_name(full)]),
 	S=self(),
 	spawn_link(fun() -> loop(S) end),
 	
@@ -274,13 +277,13 @@ add_units_to_screen(EtsName,Paint) ->
 add_unit_to_screen(heli,[X,Y],Paint) ->
 	
 	Image1 = wxImage:new("4.png"),
-	Image2 = wxImage:scale(Image1, 100,100),
+	Image2 = wxImage:scale(Image1, ?HELI_PIC_SIZE,?HELI_PIC_SIZE),
 	%%%%%%%%%%%%%%%%%%%%Image5 = wxImage:rotate(Image4, Angle, {200,200}),
 	Bmp = wxBitmap:new(Image2),	
 	wxImage:destroy(Image1),
 	wxImage:destroy(Image2),
 	%%%%%%%%%%wxImage:destroy(Image5),
-	wxDC:drawBitmap(Paint, Bmp, {round(X)-50,round(Y)-50}),
+	wxDC:drawBitmap(Paint, Bmp, {round(X)-?HELI_PIC_HALF,round(Y)-?HELI_PIC_HALF}),
 	wxBitmap:destroy(Bmp);
 	
 add_unit_to_screen(fire,[R,X,Y],Paint) ->

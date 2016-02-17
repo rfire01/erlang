@@ -12,7 +12,7 @@
 %%-export([start_sim/1,extinguish_fire/1,merge/1,update_sens/2,update_heli/2]).
 -export([start_sim/1,extinguish_fire/1,merge/1]).
  
- 
+-define(FIRE_REFRESH_SPEED,100).
 %-record(state, {code}).
  
 %%%===================================================================
@@ -68,6 +68,7 @@ init([Name,ServerName,StartRadius,X,Y]) ->
 	ets:insert(Ets,{radius,StartRadius}),
 	ets:insert(Ets,{x,X}),
 	ets:insert(Ets,{y,Y}),
+	ets:insert(Ets,{mergeValid,true}),
 	ets:insert(Ets,{myName,Name}),
 	ets:insert(Ets,{serverName,ServerName}),
 	io:format("started fire with radius = ~p~n",[StartRadius]),
@@ -90,7 +91,7 @@ init([Name,ServerName,StartRadius,X,Y]) ->
 %%--------------------------------------------------------------------
 
 idle({start}, State) ->
-  {next_state, idle, State,100};
+  {next_state, idle, State,?FIRE_REFRESH_SPEED};
 
 idle(timeout, State) ->
 	[{_,Radius}] = ets:lookup(State,radius),
@@ -100,12 +101,19 @@ idle(timeout, State) ->
 	[{_,ServerName}] = ets:lookup(State,serverName),
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("Fire++ ~p, new Radius = ~p~n",[MyName,NewRad]),
-	{next_state, idle, State,100};
+	{next_state, idle, State,?FIRE_REFRESH_SPEED};
 	
 	
 idle({merge}, State) ->
-	%%TODO pass all sensors and helis to the bigger fire
-  {next_state, fire_out, State};
+	[{_,MergeValid}] = ets:lookup(State,mergeValid),
+	case MergeValid of
+		 true-> [{_,MyName}] = ets:lookup(State,myName),
+			[{_,ServerName}] = ets:lookup(State,serverName),
+			unit_server:update(ServerName,fire,[MyName,0]),
+			io:format("merge ~p~n",[MyName]),
+			{next_state, fire_out, State};
+		  false->{next_state, idle, State,?FIRE_REFRESH_SPEED}
+	end;
 
 idle(_Event, State) ->
   {next_state, idle, State}.
@@ -134,6 +142,7 @@ fire_out(_Event, State) ->
 %%--------------------------------------------------------------------
  
 idle({decrease},_From,State) ->
+	%ets:insert(State,{mergeValid,false}),
 	[{_,Radius}] = ets:lookup(State,radius),
 	case Radius -0.5 =<0 of
 		true -> NewRad=0;
@@ -146,8 +155,10 @@ idle({decrease},_From,State) ->
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("new Radius = ~p~n",[NewRad]),
 	case NewRad == 0 of
-		true -> io:format("fire extinguished~n"), {reply, {fire_dead,NewRad}, fire_out, State, 100};
-		false -> {reply, {fire_alive,NewRad}, idle, State, 100}
+
+		true -> io:format("fire extinguished~n"), {reply, {fire_dead,NewRad}, fire_out, State};
+		false -> {reply, {fire_alive,NewRad}, idle, State, ?FIRE_REFRESH_SPEED}
+
 	end; 
  
 idle(_Event, _From, State) ->

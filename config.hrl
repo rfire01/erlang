@@ -21,7 +21,8 @@
 
 
 %fire
--define(FIRE_REFRESH_SPEED,100).
+-define(FIRE_REFRESH_SPEED,800).
+-define(FIRE_INCRESE_SPEED,400).
 
 
 %heli

@@ -59,7 +59,7 @@ do_init(Server) ->
 	
 	wxWindow:connect(Panel, command_button_clicked),
 	
-	Map1 = wxImage:new("forest_3.jpg"),														%%background image
+	Map1 = wxImage:new("pic/forest_3.jpg"),														%%background image
 	Map_1 = wxImage:scale(Map1, ?Horizontal,?Vertical),										%%scale image
 	wxImage:destroy(Map1),
 	
@@ -73,6 +73,7 @@ do_init(Server) ->
 	
 	ets:new(simData,[set,public,named_table]),
 	ets:new(senEts,[set,public,named_table]),
+	ets:new(sensAnm,[set,public,named_table]),
 	%ets:insert(simData,{heli,[]}),
 	%ets:insert(simData,{fire,[]}),
 	%ets:insert(simData,{sens,[]}),
@@ -245,24 +246,24 @@ list_to_number(Number) ->
 %%%%%%%%%%%%%%%%%%% return a list of the information of the heli
 randUnit(_,0,_) -> ok;
 randUnit(heli,Amount,EtsName) ->
-	X = random:uniform(?Horizontal-200)+100,
-	Y  = random:uniform(?Vertical-200)+100,
+	X = random:uniform(?Horizontal-?HELI_PIC_SIZE*2)+?HELI_PIC_SIZE,
+	Y  = random:uniform(?Vertical-?HELI_PIC_SIZE*8)+?HELI_PIC_SIZE,
 	HeliData = {{heli,list_to_atom("heli" ++ integer_to_list(Amount))},X,Y,not_working},
 	%add_to_ets(heli,HeliData,EtsName),
 	ets:insert(EtsName,HeliData),
 	randUnit(heli,Amount-1,EtsName);
 
 randUnit(fire,Amount,EtsName) ->
-	X = random:uniform(?Horizontal-100)+50,
-	Y  = random:uniform(?Vertical-100)+50,
+	X = random:uniform(?Horizontal-?FireDefaultRadius*5)+?FireDefaultRadius*2,
+	Y  = random:uniform(?Vertical-?FireDefaultRadius*35)+?FireDefaultRadius,
 	FireData = {{fire,list_to_atom("fire" ++ integer_to_list(Amount))},?FireDefaultRadius,X,Y},
 	%add_to_ets(fire,FireData,EtsName),
 	ets:insert(EtsName,FireData),
 	randUnit(fire,Amount-1,EtsName);
 
 randUnit(sensor,Amount,EtsName) ->
-	X = random:uniform(?Horizontal-100)+50,
-	Y  = random:uniform(?Vertical-100)+50,
+	X = random:uniform(?Horizontal-?SensorRadius*4)+?SensorRadius*2,
+	Y  = random:uniform(?Vertical-?SensorRadius*7)+?SensorRadius,
 	SensorData = {{sensor,list_to_atom("sensor" ++ integer_to_list(Amount))},?SensorRadius,X,Y},
 	%add_to_ets(sens,SensorData,EtsName),
 	ets:insert(EtsName,SensorData),
@@ -283,7 +284,7 @@ add_units_to_screen(EtsName,Paint,SenEts) ->
 	
 add_unit_to_screen(heli,[X,Y],Paint) ->
 	
-	Image1 = wxImage:new("4.png"),
+	Image1 = wxImage:new("pic/heli_4.png"),
 	Image2 = wxImage:scale(Image1, ?HELI_PIC_SIZE,?HELI_PIC_SIZE),
 	%%%%%%%%%%%%%%%%%%%%Image5 = wxImage:rotate(Image4, Angle, {200,200}),
 	Bmp = wxBitmap:new(Image2),	
@@ -296,7 +297,7 @@ add_unit_to_screen(heli,[X,Y],Paint) ->
 add_unit_to_screen(fire,[R,X,Y],Paint) ->
 	case 2*round(R)>0 of
 		true -> 
-				Image1 = wxImage:new("fire_2.png"),
+				Image1 = wxImage:new("pic/fire_2.png"),
 				Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
 				%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
 				Bmp = wxBitmap:new(Image2),
@@ -309,4 +310,17 @@ add_unit_to_screen(fire,[R,X,Y],Paint) ->
 	end;
 	
 add_unit_to_screen(sensor,[R,X,Y],Paint) ->
-	wxDC:drawCircle(Paint, {X,Y}, R).
+	%wxDC:drawCircle(Paint, {X,Y}, R).
+	case 2*round(R)>0 of
+		true -> 
+				Image1 = wxImage:new("pic/sensor/se_2.png"),
+				Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
+				%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
+				Bmp = wxBitmap:new(Image2),
+				wxImage:destroy(Image1),
+				wxImage:destroy(Image2),
+				%%%%%%%%%%%%wxImage:destroy(Image51),
+				wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
+				wxBitmap:destroy(Bmp);
+		false -> do_nothing
+	end.

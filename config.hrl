@@ -25,9 +25,9 @@
 
 
 %heli
--define(MAXX, 1200-?HELI_PIC_HALF).
+-define(MAXX, ?Horizontal-?HELI_PIC_HALF).
 -define(MINX, 0-?HELI_PIC_HALF).
--define(MAXY, 556-?HELI_PIC_HALF).
+-define(MAXY, ?Vertical-?HELI_PIC_HALF).
 -define(MINY, 0-?HELI_PIC_HALF).
 
 -define(MOVEMENT_SPEED,100).
@@ -39,9 +39,11 @@
 
 %wxTry
 -define(Horizontal,1200).
--define(Vertical,1000).
+-define(Vertical,556).
 
--define(FireDefaultRadius, 50).
+-define(FireDefaultRadius, 10).
+ 
 -define(SensorRadius, 50).
+
 -define(HELI_PIC_SIZE, 50).
 -define(HELI_PIC_HALF, round(?HELI_PIC_SIZE/2)).

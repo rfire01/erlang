@@ -25,10 +25,10 @@
 
 
 %heli
--define(MAXX, 1200-25).
--define(MINX, 0-25).
--define(MAXY, 556-25).
--define(MINY, 0-25).
+-define(MAXX, 1200-?HELI_PIC_HALF).
+-define(MINX, 0-?HELI_PIC_HALF).
+-define(MAXY, 556-?HELI_PIC_HALF).
+-define(MINY, 0-?HELI_PIC_HALF).
 
 -define(MOVEMENT_SPEED,100).
 -define(REFRESH_SPEED,10).

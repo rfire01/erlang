@@ -36,7 +36,7 @@
 
 %wxTry
 -define(Horizontal,1200).
--define(Vertical,556).
+-define(Vertical,1000).
 
 -define(FireDefaultRadius, 50).
 -define(SensorRadius, 50).

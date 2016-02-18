@@ -48,7 +48,7 @@ heli_done(GenName,Name) ->
     gen_server:cast({global, GenName}, {heli_done,Name}).
 
 fire_check(GenName,Name) -> 
-	try gen_server:call({global,GenName},{heli_fire_check,Name}) catch _Error:_Reason -> error_in_server end.
+	try gen_server:call({global,GenName},{heli_fire_check,Name},3000) catch _Error:_Reason -> error_in_server end.
    %gen_server:call({global,GenName},{heli_fire_check,Name}).
    
 wx_update(GenName) ->
@@ -225,7 +225,8 @@ terminate(Reason, _Server) ->
 	%[gen_fsm:send_all_state_event({global,H},stop) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
 	%timer:sleep(2000),
 	wait_done(qlc:eval(QH)),
-    io:format("Generic termination handler: '~p' '~p'~n",[Reason, _Server]).
+    io:format("Generic termination handler: '~p' '~p'~n",[Reason, _Server]),
+	ok.
 
 
 

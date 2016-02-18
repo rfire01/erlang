@@ -44,6 +44,7 @@ init(Server) ->
 do_init(Server) ->
 	%%----------- init local servers (for each part of screen)
 	unit_server:start(full),
+	%spawn('foo@rfire-PC',unit_server,start,[full]),
 
     Frame = wxFrame:new(Server, -1, "wx test sim", [{size,{?Horizontal, ?Vertical}}]),		%%create frame for the simulator
 	Panel  = wxPanel:new(Frame,[{style, ?wxFULL_REPAINT_ON_RESIZE}]),						%%create panel from the frame
@@ -123,7 +124,7 @@ do_init(Server) ->
 	
 	%io:format("########### ~p ##############3 ~n",[global:whereis_name(full)]),
 	S=self(),
-	spawn_link(fun() -> loop(S) end),
+	register(refresher, spawn_link(fun() -> loop(S) end)),
 	
 	{Panel, State}.
 
@@ -216,7 +217,13 @@ handle_cast(Msg, State) ->
 code_change(_, _, State) ->
     {stop, ignore, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, State=#state{}) ->
+	wxWindow:destroy(State#state.canvas),
+	wx:destroy(),
+	case whereis(refresher) of
+		undefined -> ok;
+		Pid -> exit(Pid,kill)
+	end,
 	gen_server:stop({global,full}),
     ok.
 	  

@@ -83,7 +83,8 @@ init([SensorName,ServerName]) ->
 
 idle({start_sim}, State) ->
 	Self = self(),
-	spawn(fun() -> loop(Self) end), 
+	AlertPid = spawn(fun() -> loop(Self) end), 
+	put(alerting,AlertPid),
 	{next_state, working, State};
 
 idle(_Event, State) ->
@@ -209,6 +210,10 @@ handle_info(_Info, StateName, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, _StateName, _State) ->
+	case get(alerting) of
+		undefined -> ok;
+		Pid ->	exit(Pid,kill)
+	end,
     ok.
  
 %%--------------------------------------------------------------------

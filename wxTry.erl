@@ -29,6 +29,7 @@
 		 sensor_amount,
 		 random_but,
 		 ets_name,
+		 sen_ets_name,
 		 self
 		}).
 
@@ -71,11 +72,12 @@ do_init(Server) ->
 	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{830,18}}]),
 	
 	ets:new(simData,[set,public,named_table]),
+	ets:new(senEts,[set,public,named_table]),
 	%ets:insert(simData,{heli,[]}),
 	%ets:insert(simData,{fire,[]}),
 	%ets:insert(simData,{sens,[]}),
 	
-	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,random_but=Rand,self=self()},
+	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,self=self()},
 	
 	OnPaint=fun(_Evt,_Obj)->%%function to do when paint event called
 					
@@ -83,7 +85,7 @@ do_init(Server) ->
 					Bitmap=wxBitmap:new(Map_1),
 					wxDC:drawBitmap(Paint,Bitmap,{0,0}),
 					wxBitmap:destroy(Bitmap),
-					add_units_to_screen(simData,Paint),
+					add_units_to_screen(simData,Paint,senEts),
 					
 					%helicopter
 					%[{_,X}] = ets:lookup(cord,x),
@@ -134,6 +136,7 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
 	io:format("randomizing units coordinates ~p~n",[Ev]),
 	
 	ets:delete_all_objects(State#state.ets_name),
+	ets:delete_all_objects(State#state.sen_ets_name),
 	
 	HeliTxt = wxTextCtrl:getValue(State#state.heli_amount),
 	FireTxt = wxTextCtrl:getValue(State#state.fire_amount),
@@ -154,12 +157,14 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
 	Valid = (HeliValid and FireValid) and SenValid,
 	
 	case Valid == true of
-		true -> random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
+		true -> Tmp = erlang:system_time() / erlang:monotonic_time(),
+				Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+				random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(heli,HeliNum,State#state.ets_name),
 				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(fire,FireNum,State#state.ets_name),
 				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
-				randUnit(sensor,SenNum,State#state.ets_name),
+				randUnit(sensor,SenNum,State#state.sen_ets_name),
 				io:format("ets = ~p~n",[ets:tab2list(State#state.ets_name)]);
 		false -> io:format("please enter NUMBERS into amount of units~n")
 	end,
@@ -167,7 +172,9 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
 	Pid = State#state.self,
 	Pid ! refresh,
 	
-	unit_server:create(full,ets:tab2list(State#state.ets_name)),
+	EtsToSend = ets:tab2list(State#state.ets_name) ++ ets:tab2list(State#state.sen_ets_name),
+	
+	unit_server:create(full,EtsToSend),
 	
     {noreply,State};
 	
@@ -263,12 +270,12 @@ randUnit(sensor,Amount,EtsName) ->
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-add_units_to_screen(EtsName,Paint) ->
+add_units_to_screen(EtsName,Paint,SenEts) ->
 		
 		
 	QH_fire = qlc:q([[R,X,Y] || {{fire,_},R,X,Y} <- ets:table(EtsName)]),
 	QH_heli = qlc:q([[X,Y] || {{heli,_},X,Y,_} <- ets:table(EtsName)]),
-	QH_sensor = qlc:q([[R,X,Y] || {{sensor,_},R,X,Y} <- ets:table(EtsName)]),
+	QH_sensor = qlc:q([[R,X,Y] || {{sensor,_},R,X,Y} <- ets:table(SenEts)]),
 
 	[ add_unit_to_screen(sensor,Unit,Paint) || Unit <- qlc:eval(QH_sensor)],
 	[ add_unit_to_screen(fire,Unit,Paint) || Unit <- qlc:eval(QH_fire)],

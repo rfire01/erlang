@@ -59,10 +59,11 @@ new_alert(Name,FireName) ->
 %%--------------------------------------------------------------------
 init([SensorName,ServerName]) ->
 	Ets=ets:new(active_fire,[set]),
+	put(ets_id,Ets),
 	ets:insert(Ets,{serverName,ServerName}),
 	ets:insert(Ets,{myName,SensorName}),
 	io:format("started sensor ~p~n",[ets:tab2list(Ets)]),
-    {ok, idle, Ets}.
+    {ok, idle, {}}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -89,12 +90,12 @@ idle(_Event, State) ->
   {next_state, idle, State}.
   
 working({new_alert,FireName}, State) ->
+	Ets = get(ets_id),
 	%io:format("alert receive for: ~p~n",[FireName]),
-	ets:insert(State,{FireName,on}),
+	ets:insert(Ets,{FireName,on}),
 	{next_state, working, State};
 	
 working(_Event, State) ->
-	io:format("shit happens ~n"),
   {next_state, working, State}.
  
 %%--------------------------------------------------------------------
@@ -175,20 +176,21 @@ handle_sync_event(_Event, _From, StateName, State) ->
 %%--------------------------------------------------------------------
 handle_info(check_alert, StateName, State) ->
 
+	Ets = get(ets_id),
 	%io:format("current fires= ~p~n",[ets:tab2list(State)]),
 
-	QH = qlc:q([Fire || {Fire,on} <- ets:table(State), Fire /=serverName, Fire /=myName]),
+	QH = qlc:q([Fire || {Fire,on} <- ets:table(Ets), Fire /=serverName, Fire /=myName]),
 	
-	[{_,Gen}] = ets:lookup(State,serverName),
-	[{_,Sen}] = ets:lookup(State,myName),
+	[{_,Gen}] = ets:lookup(Ets,serverName),
+	[{_,Sen}] = ets:lookup(Ets,myName),
     case qlc:eval(QH)  of
 		[] -> no_alerts;
 		FireList -> [ unit_server:heli_request(Gen,Sen,Name) ||Name <- FireList]
 	end,
-	ets:delete_all_objects(State),
+	ets:delete_all_objects(Ets),
 	
-	ets:insert(State,{serverName,Gen}),
-	ets:insert(State,{myName,Sen}),
+	ets:insert(Ets,{serverName,Gen}),
+	ets:insert(Ets,{myName,Sen}),
 	
     {next_state, StateName, State};
 
@@ -225,18 +227,4 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-delete_from_ets(KeyName,Value) ->
-	[{_,List}] = ets:lookup(sensdata,KeyName),
-	NewList = [ Val || Val <-List, Val /= Value],
-	ets:insert(sensdata,{KeyName,NewList}).
-	
-add_to_ets(KeyName,Value) ->
-	[{_,List}] = ets:lookup(sensdata,KeyName),
-	case lists:member(Value,List) of
-		false -> ets:insert(sensdata,{KeyName,[Value|List]});
-		true -> already_exists
-	end.
-	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-loop(Pid) -> receive after 1000 -> Pid ! check_alert end, loop(Pid).
+loop(Pid) -> receive after ?SENSOR_CHECK_TIME -> Pid ! check_alert end, loop(Pid).

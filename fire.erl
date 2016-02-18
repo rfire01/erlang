@@ -36,7 +36,7 @@ start_sim(Name) ->
   gen_fsm:send_event({global, Name}, {start}).
   
 extinguish_fire(Name) ->
-  gen_fsm:sync_send_event({global, Name}, {decrease}).
+  try gen_fsm:sync_send_event({global, Name}, {decrease}) catch _Error:_Reason -> {fire_dead,0} end.
   
 merge(Name) ->
   gen_fsm:send_event({global, Name}, {merge}).
@@ -66,14 +66,14 @@ merge(Name) ->
 %%--------------------------------------------------------------------
 init([Name,ServerName,StartRadius,X,Y]) ->
 	Ets = ets:new(firedata,[set]),
+	put(ets_id,Ets),
 	ets:insert(Ets,{radius,StartRadius}),
 	ets:insert(Ets,{x,X}),
 	ets:insert(Ets,{y,Y}),
-	ets:insert(Ets,{mergeValid,true}),
 	ets:insert(Ets,{myName,Name}),
 	ets:insert(Ets,{serverName,ServerName}),
 	io:format("started fire with radius = ~p~n",[StartRadius]),
-    {ok, idle, Ets}.
+    {ok, idle, {}}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -95,26 +95,24 @@ idle({start}, State) ->
   {next_state, idle, State,?FIRE_REFRESH_SPEED};
 
 idle(timeout, State) ->
-	[{_,Radius}] = ets:lookup(State,radius),
+	Ets = get(ets_id),
+	[{_,Radius}] = ets:lookup(Ets,radius),
 	NewRad = Radius + 0.3,
-	ets:insert(State,{radius,NewRad}),
-	[{_,MyName}] = ets:lookup(State,myName),
-	[{_,ServerName}] = ets:lookup(State,serverName),
+	ets:insert(Ets,{radius,NewRad}),
+	[{_,MyName}] = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("Fire++ ~p, new Radius = ~p~n",[MyName,NewRad]),
 	{next_state, idle, State,?FIRE_REFRESH_SPEED};
 	
 	
 idle({merge}, State) ->
-	[{_,MergeValid}] = ets:lookup(State,mergeValid),
-	case MergeValid of
-		 true-> [{_,MyName}] = ets:lookup(State,myName),
-			[{_,ServerName}] = ets:lookup(State,serverName),
-			unit_server:update(ServerName,fire,[MyName,0]),
-			io:format("merge ~p~n",[MyName]),
-			{next_state, fire_out, State};
-		  false->{next_state, idle, State,?FIRE_REFRESH_SPEED}
-	end;
+	Ets = get(ets_id),
+	[{_,MyName}] = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	unit_server:update(ServerName,fire,[MyName,0]),
+	io:format("merge ~p~n",[MyName]),
+	{next_state, fire_out, State};
 
 idle(_Event, State) ->
   {next_state, idle, State}.
@@ -143,16 +141,16 @@ fire_out(_Event, State) ->
 %%--------------------------------------------------------------------
  
 idle({decrease},_From,State) ->
-	%ets:insert(State,{mergeValid,false}),
-	[{_,Radius}] = ets:lookup(State,radius),
+	Ets = get(ets_id),
+	[{_,Radius}] = ets:lookup(Ets,radius),
 	case Radius -0.5 =<0 of
 		true -> NewRad=0;
 		false -> NewRad = Radius - 0.5
 	end,
 	%io:format("Fire-- new Radius = ~p~n",[NewRad]),
-	ets:insert(State,{radius,NewRad}),
-	[{_,MyName}] = ets:lookup(State,myName),
-	[{_,ServerName}] = ets:lookup(State,serverName),
+	ets:insert(Ets,{radius,NewRad}),
+	[{_,MyName}] = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("new Radius = ~p~n",[NewRad]),
 	case NewRad == 0 of
@@ -248,15 +246,3 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-delete_from_ets(KeyName,Value) ->
-	[{_,List}] = ets:lookup(firedata,KeyName),
-	NewList = [ Val || Val <-List, Val /= Value],
-	ets:insert(firedata,{KeyName,NewList}).
-	
-add_to_ets(KeyName,Value) ->
-	[{_,List}] = ets:lookup(firedata,KeyName),
-	case lists:member(Value,List) of
-		false -> ets:insert(firedata,{KeyName,[Value|List]});
-		true -> already_exists
-	end.

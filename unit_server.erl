@@ -48,7 +48,8 @@ heli_done(GenName,Name) ->
     gen_server:cast({global, GenName}, {heli_done,Name}).
 
 fire_check(GenName,Name) -> 
-   gen_server:call({global,GenName},{heli_fire_check,Name}).
+	try gen_server:call({global,GenName},{heli_fire_check,Name}) catch _Error:_Reason -> error_in_server end.
+   %gen_server:call({global,GenName},{heli_fire_check,Name}).
    
 wx_update(GenName) ->
   gen_server:call({global,GenName},{wx_request}).
@@ -77,7 +78,10 @@ init([Name]) ->
 % {stop,Reason,NewState}
 handle_call({wx_request}, _From, State) -> 
 	Ets = get(ets_id),
-	{reply,ets:tab2list(Ets),State};
+	
+	QH = qlc:q([{{Type,Name},Field1,Field2,Field3}	|| {{Type,Name},Field1,Field2,Field3} <- ets:table(Ets), ((Type==fire) or (Type==heli))]),
+	
+	{reply,qlc:eval(QH),State};
 	
 handle_call({heli_fire_check,HeliName}, _From, State) -> 
 	Ets = get(ets_id),
@@ -184,7 +188,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 									ets:insert(Sen_fire,{{Sen_name,Fire_Name},true}),
 									ets:insert(Ets,{{heli,Name},X,Y,working}),
 									[{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
-									io:format("sending heli ~p~n",[Name]),
+									%io:format("sending heli ~p~n",[Name]),
 									heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
 				   end
 	end,
@@ -193,7 +197,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 					
 handle_cast({heli_done,Name}, State) ->
 	Ets = get(ets_id),
-	io:format("helicopter: ~p is free ~n",[Name]),
+	%io:format("helicopter: ~p is free ~n",[Name]),
 	ets:update_element(Ets,{heli,Name},{4,not_working}),
 	{noreply, State};
 
@@ -212,14 +216,17 @@ handle_info(_Message, _Server) ->
     {noreply, _Server}.
 
 %% Server termination
-terminate(_Reason, _Server) ->
+terminate(Reason, _Server) ->
 	Ets = get(ets_id),
-	ets:delete(Ets,myInfo),
-	ObjList = ets:tab2list(Ets),
-	io:format("Generic termination ObjList: '~p' ~n",[ObjList]),
-	[gen_fsm:stop({global,H}) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
-	%timer:sleep(1000),
-    io:format("Generic termination handler: '~p' '~p'~n",[_Reason, _Server]).
+	QH = qlc:q([ Name	|| {{_,Name},_,_,_} <- ets:table(Ets), global:whereis_name(Name) /= undefined]),
+	io:format("qlc = ~p~n",[qlc:eval(QH)]),
+	[gen_fsm:stop({global,Name}) || Name <- qlc:eval(QH)],
+	%ObjList = ets:tab2list(Ets),
+	%[gen_fsm:send_all_state_event({global,H},stop) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
+	%timer:sleep(2000),
+	wait_done(qlc:eval(QH)),
+    io:format("Generic termination handler: '~p' '~p'~n",[Reason, _Server]).
+
 
 
 %% Code change
@@ -250,18 +257,27 @@ overlappingFire(X1,Y1,X2,Y2,R1,R2)->
 		    %io:format("CosA: ~p ,",[CosA]),
 		    CosB= ((Dis*Dis)+(R2*R2)-(R1*R1))/(2*Dis*R2),
 		    %io:format("CosB: ~p ~n",[CosB]),
-		    SinA=2*math:acos(CosA),
-		    SinB=2*math:acos(CosB),
-		    Over=(R1*R1*math:acos(CosA))-(0.5*R1*R1*math:sin(SinA))+(R2*R2*math:acos(CosB))-(0.5*R2*R2*math:sin(SinB)),
-		    Ans= Over*100/(math:pi()*R1*R1)>?OVERLAP_PERC,
+			case (((CosA>-1) and (CosA<1)) and ((CosA>-1) and (CosA<1))) of
+				true ->
+						SinA=2*math:acos(CosA),
+						SinB=2*math:acos(CosB),
+						Over=(R1*R1*math:acos(CosA))-(0.5*R1*R1*math:sin(SinA))+(R2*R2*math:acos(CosB))-(0.5*R2*R2*math:sin(SinB)),
+						Ans= Over*100/(math:pi()*R1*R1)>?OVERLAP_PERC;
+				false -> Ans = false
+			end,
 		    Ans;
 	    false->false
     end.
 		    
-flush()->
-  receive
-    Any-> io:format("fluse: ~p ~n",[Any]),
-	flush()
-  after 0 -> ok
-end.
+    %Temp = math:acos(math:cos(Rad)).
+    %Temp * 180 / math:pi()==Deg.
+
+	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+wait_done([]) -> ok;
+wait_done([H|T]) -> 
+	case global:whereis_name(H) of
+		undefined -> wait_done(T);
+		_Any -> wait_done([H|T])
+	end.
 	

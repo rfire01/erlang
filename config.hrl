@@ -16,6 +16,9 @@
 %-define(X_AXIS_BORDER,			(-?Horizontal/2)).
 %-define(Y_AXIS_BORDER,			(-?Vertical/2)).
 
+%sensor
+-define(SENSOR_CHECK_TIME,1000).
+
 
 %fire
 -define(FIRE_REFRESH_SPEED,100).

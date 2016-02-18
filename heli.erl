@@ -93,7 +93,9 @@ init([Name,ServerName,X,Y]) ->
 %% @end
 %%--------------------------------------------------------------------
 idle({idle_move}, _State) ->
-  random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
+  Tmp = erlang:system_time() / erlang:monotonic_time(),
+  Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+  random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
 
   Xdif = ((random:uniform() * 2 - 1) * ?MOVEMENT_SPEED),
   Dir = random:uniform(2),
@@ -129,11 +131,11 @@ idle(timeout, {DifX,DifY}) ->
 
 idle({move_dst,DstX,DstY,Objective},_State) ->
 	Ets = get(ets_id),
-	io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
+	%io:format("moving to dst = (~p,~p)~n",[DstX,DstY]),
 	[{_,CurrentX}] = ets:lookup(Ets,x),
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	
-	io:format("(x,y) = (~p,~p) ; (dstx,dsty) = (~p,~p)~n",[CurrentX,CurrentY,DstX,DstY]),
+	%io:format("(x,y) = (~p,~p) ; (dstx,dsty) = (~p,~p)~n",[CurrentX,CurrentY,DstX,DstY]),
 	Angle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
 	{DifX,DifY} = calc_destination_movement_diffs(Angle),
 	{next_state,move_destination,{DifX,DifY,DstX,DstY,Objective},?REFRESH_SPEED};
@@ -159,7 +161,7 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective}) ->
 	Arrived = step_dest(CurrentX,CurrentY,DstX,DstY,DifX,DifY,Ets),
 	unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	case Arrived of
-		true -> io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
+		true -> %io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
 				DifAngle = calc_angle_diff(CR),
 				{next_state,search_circle,{CR,CX,CY,A,DifAngle,Objective},?REFRESH_SPEED};
@@ -182,17 +184,18 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,SensorData}) ->
 	%io:format("new angle = ~p~n", [Angle]),
 	
 	%case gen_server:call({global,ServerName},{heli_fire_check,MyName}) of
+
 	case unit_server:fire_check(ServerName,MyName) of
 		false -> 
 				case Angle > 6.29 of 
-					true -> io:format("finished circle~n"),
+					true -> %io:format("finished circle~n"),
 							{DifX,DifY} = rand_idle_diff(),
 							unit_server:heli_done(ServerName,MyName),
 							{next_state,idle,{DifX,DifY},?REFRESH_SPEED};
 					false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,SensorData},?REFRESH_SPEED}
 				end;
 		    
-		[NF,RF,XF,YF] -> io:format("found fire [~p,~p,~p,~p]~n",[NF,RF,XF,YF]),
+		[NF,RF,XF,YF] -> %io:format("found fire [~p,~p,~p,~p]~n",[NF,RF,XF,YF]),
 						StartAngle = calc_destination_angle(CurrentX,CurrentY,XF,YF),
 						FrameX = RF * math:cos(StartAngle)+ XF,
 						FrameY = RF * math:sin(StartAngle)+ YF,
@@ -200,7 +203,8 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,SensorData}) ->
 							true -> {next_state,extinguish,{circle,NF,RF,XF,YF,StartAngle,SensorData},?EXTINGUISH_SPEED};
 							false -> {DifX,DifY} = calc_destination_movement_diffs(StartAngle),
 									 {next_state,extinguish,{straight,-1*DifX,-1*DifY,NF,XF,YF,StartAngle,SensorData},?EXTINGUISH_SPEED}
-						end
+						end;
+		error_in_server -> {next_state,idle,{}}
 	end;
 		
 
@@ -222,7 +226,7 @@ extinguish(timeout,{circle,N,R,X,Y,Angle,SensorData}) ->
 	case FireState of
 	    fire_alive-> {next_state,extinguish,{circle,N,NewR,X,Y,Angle + DifAngle,SensorData},?EXTINGUISH_SPEED};
 	    fire_dead->  %{DifX,DifY} = rand_idle_diff(),
-					  io:format("fire_dead~n"),
+					  %io:format("fire_dead~n"),
 					  %unit_server:heli_done(ServerName,MyName),
 					  {CR,CX,CY,_A} = SensorData,
 					  {DstX,DstY} = {CR+CX,CY},
@@ -253,7 +257,7 @@ extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData}) ->
 						false -> {next_state,extinguish,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData},?EXTINGUISH_SPEED}
 					 end;
 	    fire_dead->  %{DifX,DifY} = rand_idle_diff(),
-					  io:format("fire_dead~n"),
+					  %io:format("fire_dead~n"),
 					  %unit_server:heli_done(ServerName,MyName),
 					  {CR,CX,CY,_A} = SensorData,
 					  {DstX,DstY} = {CR+CX,CY},
@@ -362,6 +366,7 @@ handle_info(_Info, StateName, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, _StateName, _State) ->
+	%io:format("heli termination handler: '~p' '~p' '~p'~n",[_Reason, _StateName,_State]),
     ok.
  
 %%--------------------------------------------------------------------
@@ -425,12 +430,12 @@ calc_destination_angle(X,Y,DstX,DstY) ->
 	S = math:sqrt(DeltaX * DeltaX + DeltaY * DeltaY),
 	case X> DstX of
 		true -> case Y > DstY of
-					true -> Angle = math:asin((Y-DstY)/S),io:format("I~n");
-					false -> Angle = (math:pi()/2 -math:asin((DstY-Y)/S)) + math:pi() * 3/2,io:format("IV~n")
+					true -> Angle = math:asin((Y-DstY)/S);
+					false -> Angle = (math:pi()/2 -math:asin((DstY-Y)/S)) + math:pi() * 3/2
 				end;
 		false -> case Y > DstY of
-					true -> Angle = (math:pi()/2 -math:asin((Y-DstY)/S)) + math:pi() / 2,io:format("II~n");
-					false -> Angle = math:asin((DstY-Y)/S) + math:pi(),io:format("III~n")
+					true -> Angle = (math:pi()/2 -math:asin((Y-DstY)/S)) + math:pi() / 2;
+					false -> Angle = math:asin((DstY-Y)/S) + math:pi()
 				 end
 	end,
 	
@@ -491,7 +496,9 @@ step_circle(CX,CY,R,Angle,Ets) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 rand_idle_diff()->
-  random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
+  Tmp = erlang:system_time() / erlang:monotonic_time(),
+  Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+  random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
 
   Xdif = ((random:uniform() * 2 - 1) * ?MOVEMENT_SPEED),
   Dir = random:uniform(2),

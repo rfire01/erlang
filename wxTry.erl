@@ -60,7 +60,7 @@ do_init(Server) ->
 	
 	wxWindow:connect(Panel, command_button_clicked),
 	
-	Map1 = wxImage:new("forest.jpg"),														%%background image
+	Map1 = wxImage:new("forest_3.jpg"),														%%background image
 	Map_1 = wxImage:scale(Map1, ?Horizontal,?Vertical),										%%scale image
 	wxImage:destroy(Map1),
 	

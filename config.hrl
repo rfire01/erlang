@@ -1,20 +1,12 @@
 
 %erl -setcookie hi -name 'Grf_server@127.0.0.1'
-%erl -setcookie hi -name 'ULserver@127.0.0.1'
+%erl -setcookie hi -name TLserver@127.0.0.1
 
--define(GRF_SERVER_NODE, 'Grf_server@127.0.0.1').
--define(ULSERVER_NODE,   'ULserver@127.0.0.1').
--define(URSERVER_NODE,   'URserver@127.0.0.1').
--define(DLSERVER_NODE,   'DLserver@127.0.0.1').
--define(DRSERVER_NODE,   'DRserver@127.0.0.1').
--define(SERVERS_CNT,4).
-
-%-define(UPDATE_INTERVAL, 		33).  % 30 frames per second
-%-define(GAME_SPEED, 			2).   % Game Speed: from 1 to 10
-%-define(CLOCK,					5).
-%-define(SCAN_INTERVAL, 			500).   
-%-define(X_AXIS_BORDER,			(-?Horizontal/2)).
-%-define(Y_AXIS_BORDER,			(-?Vertical/2)).
+-define(WX_SERVER_NODE, 'wx_server@127.0.0.1').
+-define(TLSERVER_NODE,   'TLserver@127.0.0.1').
+-define(TRSERVER_NODE,   'TRserver@127.0.0.1').
+-define(BLSERVER_NODE,   'BLserver@127.0.0.1').
+-define(BRSERVER_NODE,   'BRserver@127.0.0.1').
 
 %sensor
 -define(SENSOR_CHECK_TIME,1000).
@@ -41,7 +33,7 @@
 -define(Horizontal,1200).
 -define(Vertical,556).
 
--define(FireDefaultRadius, 10).
+-define(FireDefaultRadius, 30).
  
 -define(SensorRadius, 50).
 

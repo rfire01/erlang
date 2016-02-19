@@ -31,7 +31,7 @@
 %% @end
 %%--------------------------------------------------------------------
 start(Name,Local_gen_name) ->
-    gen_fsm:start_link({global, Name}, ?MODULE, [Name,Local_gen_name], []).
+    gen_fsm:start({global, Name}, ?MODULE, [Name,Local_gen_name], []).
 
 start_sim(Name) ->
   gen_fsm:send_event({global, Name}, {start_sim}).
@@ -62,7 +62,7 @@ init([SensorName,ServerName]) ->
 	put(ets_id,Ets),
 	ets:insert(Ets,{serverName,ServerName}),
 	ets:insert(Ets,{myName,SensorName}),
-	io:format("started sensor ~p~n",[ets:tab2list(Ets)]),
+	%io:format("started sensor ~p~n",[ets:tab2list(Ets)]),
     {ok, idle, {}}.
  
 %%--------------------------------------------------------------------

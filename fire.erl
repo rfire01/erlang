@@ -30,7 +30,7 @@
 %% @end
 %%--------------------------------------------------------------------
 start(Name,ServerName,Radius,X,Y) ->
-    gen_fsm:start_link({global, Name}, ?MODULE, [Name,ServerName,Radius,X,Y], []).
+    gen_fsm:start({global, Name}, ?MODULE, [Name,ServerName,Radius,X,Y], []).
  
 start_sim(Name) ->
   gen_fsm:send_event({global, Name}, {start}).
@@ -154,7 +154,7 @@ idle({decrease},_From,State) ->
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("new Radius = ~p~n",[NewRad]),
 	case NewRad == 0 of
-		true -> io:format("fire extinguished~n"), {reply, {fire_dead,NewRad}, fire_out, State};
+		true -> {reply, {fire_dead,NewRad}, fire_out, State};
 		false -> {reply, {fire_alive,NewRad}, idle, State, ?FIRE_REFRESH_SPEED}
 	end; 
  

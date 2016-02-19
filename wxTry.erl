@@ -20,8 +20,6 @@
 
 -record(state, 
 		{
-		 frame,
-		 panel,
 		 parent,
 		 canvas,
 		 heli_amount,
@@ -43,7 +41,26 @@ init(Server) ->
 
 do_init(Server) ->
 	%%----------- init local servers (for each part of screen)
-	unit_server:start(full),
+	case connect_to_nodes([?TLSERVER_NODE,?TRSERVER_NODE,?BLSERVER_NODE,?BRSERVER_NODE]) of
+		ok -> case global:whereis_name(tl) == undefined of
+				true -> spawn(?TLSERVER_NODE,unit_server,start,[tl]);
+				false -> ok
+			  end,
+			  case global:whereis_name(tr) == undefined of
+				true -> spawn(?TRSERVER_NODE,unit_server,start,[tr]);
+				false -> ok
+			  end,
+			  case global:whereis_name(bl) == undefined of
+				true -> spawn(?BLSERVER_NODE,unit_server,start,[bl]);
+				false -> ok
+			  end,
+			  case global:whereis_name(br) == undefined of
+				true -> spawn(?BRSERVER_NODE,unit_server,start,[br]);
+				false -> ok
+			  end,
+			  wait_all_on([tl,tr,bl,br]);
+		error_in_nodes_connect -> io:format("check problem and reset wx~n")
+	end,
 	%spawn('foo@rfire-PC',unit_server,start,[full]),
 
     Frame = wxFrame:new(Server, -1, "wx test sim", [{size,{?Horizontal, ?Vertical}}]),		%%create frame for the simulator
@@ -174,9 +191,12 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
 	Pid = State#state.self,
 	Pid ! refresh,
 	
-	EtsToSend = ets:tab2list(State#state.ets_name) ++ ets:tab2list(State#state.sen_ets_name),
+	[TL_ets,TR_ets,BL_ets,BR_ets] = divide_unit_to_screens(State#state.ets_name,State#state.sen_ets_name),
 	
-	unit_server:create(full,EtsToSend),
+	unit_server:create(tl,TL_ets),
+	unit_server:create(tr,TR_ets),
+	unit_server:create(bl,BL_ets),
+	unit_server:create(br,BR_ets),
 	
     {noreply,State};
 	
@@ -185,7 +205,10 @@ handle_event(Ev=#wx{id=10,event = #wxCommand{type = command_button_clicked}},Sta
 	io:format("starting simulation ~p~n",[Ev]),
 	
 	wxButton:disable(State#state.random_but),
-	unit_server:start_sim(full),
+	unit_server:start_sim(tl),
+	unit_server:start_sim(tr),
+	unit_server:start_sim(bl),
+	unit_server:start_sim(br),
 	
     {noreply,State};
 
@@ -196,7 +219,7 @@ handle_event(Ev = #wx{}, State = #state{}) ->
 %% Callbacks handled as normal gen_server callbacks
 
 handle_info(refresh,State=#state{})->
-	Updated_list = unit_server:wx_update(full),
+	Updated_list = unit_server:wx_update(tl) ++ unit_server:wx_update(tr) ++ unit_server:wx_update(bl) ++ unit_server:wx_update(br),
 	ets:delete_all_objects(State#state.ets_name),
 	ets:insert(State#state.ets_name,Updated_list),
 	wxWindow:refresh(State#state.parent,[{eraseBackground,false}]),
@@ -225,7 +248,12 @@ terminate(_Reason, State=#state{}) ->
 		undefined -> ok;
 		Pid -> exit(Pid,kill)
 	end,
-	gen_server:stop({global,full}),
+	
+	spawn( fun() -> shut_down_server(tl) end),
+	spawn( fun() -> shut_down_server(tr) end),
+	spawn( fun() -> shut_down_server(bl) end),
+	spawn( fun() -> shut_down_server(br) end),
+	
     ok.
 	  
   
@@ -255,6 +283,8 @@ randUnit(_,0,_) -> ok;
 randUnit(heli,Amount,EtsName) ->
 	X = random:uniform(?Horizontal-?HELI_PIC_SIZE*2)+?HELI_PIC_SIZE,
 	Y  = random:uniform(?Vertical-?HELI_PIC_SIZE*4)+?HELI_PIC_SIZE,
+	%X = random:uniform(?Horizontal),
+	%Y  = random:uniform(?Vertical),
 	HeliData = {{heli,list_to_atom("heli" ++ integer_to_list(Amount))},X,Y,not_working},
 	%add_to_ets(heli,HeliData,EtsName),
 	ets:insert(EtsName,HeliData),
@@ -262,7 +292,9 @@ randUnit(heli,Amount,EtsName) ->
 
 randUnit(fire,Amount,EtsName) ->
 	X = random:uniform(?Horizontal-?FireDefaultRadius*5)+?FireDefaultRadius*2,
-	Y  = random:uniform(?Vertical-?FireDefaultRadius*15)+?FireDefaultRadius,
+	Y  = random:uniform(?Vertical-?FireDefaultRadius)+?FireDefaultRadius,
+	%X = random:uniform(?Horizontal),
+	%Y  = random:uniform(?Vertical),
 	FireData = {{fire,list_to_atom("fire" ++ integer_to_list(Amount))},?FireDefaultRadius,X,Y},
 	%add_to_ets(fire,FireData,EtsName),
 	ets:insert(EtsName,FireData),
@@ -271,6 +303,8 @@ randUnit(fire,Amount,EtsName) ->
 randUnit(sensor,Amount,EtsName) ->
 	X = random:uniform(?Horizontal-?SensorRadius*4)+?SensorRadius*2,
 	Y  = random:uniform(?Vertical-?SensorRadius*3)+?SensorRadius,
+	%X = random:uniform(?Horizontal),
+	%Y  = random:uniform(?Vertical),
 	SensorData = {{sensor,list_to_atom("sensor" ++ integer_to_list(Amount))},?SensorRadius,X,Y},
 	%add_to_ets(sens,SensorData,EtsName),
 	ets:insert(EtsName,SensorData),
@@ -330,4 +364,64 @@ add_unit_to_screen(sensor,[R,X,Y],Paint) ->
 				wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
 				wxBitmap:destroy(Bmp);
 		false -> do_nothing
+	end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	
+connect_to_nodes([]) -> ok;
+connect_to_nodes([Node|Rest]) -> case net_adm:ping(Node) of
+									pong -> 
+										connect_to_nodes(Rest);
+									pang ->
+										io:format("ERROR: Cannot connect to node ~p.~n",[Node]),
+										error_in_nodes_connect
+								 end.
+								 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+shut_down_server(Name) ->
+	case global:whereis_name(Name) of
+		undefined -> ok;
+		_any -> gen_server:stop({global,Name})
+	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% axis of wx goes:
+%% x lowest at left, highest at right
+%% y lowest at top, highest at bottom
+divide_unit_to_screens(MainEts,SenEts)->
+	QH_tl_fire = qlc:q([ {{fire,Name},R,X,Y}|| {{fire,Name},R,X,Y} <- ets:table(MainEts), X<?Horizontal/2, Y<?Vertical/2]),
+	QH_tr_fire = qlc:q([ {{fire,Name},R,X,Y}|| {{fire,Name},R,X,Y} <- ets:table(MainEts), X>?Horizontal/2, Y<?Vertical/2]),
+	QH_bl_fire = qlc:q([ {{fire,Name},R,X,Y}|| {{fire,Name},R,X,Y} <- ets:table(MainEts), X<?Horizontal/2, Y>?Vertical/2]),
+	QH_br_fire = qlc:q([ {{fire,Name},R,X,Y}|| {{fire,Name},R,X,Y} <- ets:table(MainEts), X>?Horizontal/2, Y>?Vertical/2]),
+	
+	QH_tl_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X<?Horizontal/2, Y<?Vertical/2]),
+	QH_tr_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X>?Horizontal/2, Y<?Vertical/2]),
+	QH_bl_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X<?Horizontal/2, Y>?Vertical/2]),
+	QH_br_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X>?Horizontal/2, Y>?Vertical/2]),
+	
+	io:format("SENSORS ARE = ~p~n Hor/2 =~p ; Ver/2 = ~p~n",[ets:tab2list(SenEts),?Horizontal/2,?Vertical/2]),
+	QH_tl_sensor = qlc:q([ {{sensor,Name},R,X,Y}|| {{sensor,Name},R,X,Y} <- ets:table(SenEts), X<?Horizontal/2, Y<?Vertical/2]),
+	QH_tr_sensor = qlc:q([ {{sensor,Name},R,X,Y}|| {{sensor,Name},R,X,Y} <- ets:table(SenEts), X>?Horizontal/2, Y<?Vertical/2]),
+	QH_bl_sensor = qlc:q([ {{sensor,Name},R,X,Y}|| {{sensor,Name},R,X,Y} <- ets:table(SenEts), X<?Horizontal/2, Y>?Vertical/2]),
+	QH_br_sensor = qlc:q([ {{sensor,Name},R,X,Y}|| {{sensor,Name},R,X,Y} <- ets:table(SenEts), X>?Horizontal/2, Y>?Vertical/2]),
+	
+	TL_list = qlc:eval(QH_tl_fire) ++ qlc:eval(QH_tl_heli) ++ qlc:eval(QH_tl_sensor),
+	TR_list = qlc:eval(QH_tr_fire) ++ qlc:eval(QH_tr_heli) ++ qlc:eval(QH_tr_sensor),
+	BL_list = qlc:eval(QH_bl_fire) ++ qlc:eval(QH_bl_heli) ++ qlc:eval(QH_bl_sensor),
+	BR_list = qlc:eval(QH_br_fire) ++ qlc:eval(QH_br_heli) ++ qlc:eval(QH_br_sensor),
+	io:format("TL = ~p~n",[TL_list]),
+	io:format("TR = ~p~n",[TR_list]),
+	io:format("BL = ~p~n",[BL_list]),
+	io:format("BR = ~p~n",[BR_list]),
+	[TL_list,TR_list,BL_list,BR_list].
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+wait_all_on([]) -> ok;
+wait_all_on([H|T]) ->
+	case global:whereis_name(H) of
+		undefined -> wait_all_on([H|T]);
+		_Any -> wait_all_on(T)
 	end.

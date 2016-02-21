@@ -2,11 +2,17 @@
 %erl -setcookie hi -name 'Grf_server@127.0.0.1'
 %erl -setcookie hi -name TLserver@127.0.0.1
 
--define(WX_SERVER_NODE, 'wx_server@127.0.0.1').
--define(TLSERVER_NODE,   'TLserver@127.0.0.1').
--define(TRSERVER_NODE,   'TRserver@127.0.0.1').
--define(BLSERVER_NODE,   'BLserver@127.0.0.1').
--define(BRSERVER_NODE,   'BRserver@127.0.0.1').
+%-define(WX_SERVER_NODE, 'wx_server@127.0.0.1').
+%-define(TLSERVER_NODE,   'TLserver@127.0.0.1').
+%-define(TRSERVER_NODE,   'TRserver@127.0.0.1').
+%-define(BLSERVER_NODE,   'BLserver@127.0.0.1').
+%-define(BRSERVER_NODE,   'BRserver@127.0.0.1').
+
+-define(WX_SERVER_NODE, 'wx_server@132.73.201.153').
+-define(TLSERVER_NODE,   'LT@132.72.52.49').
+-define(TRSERVER_NODE,   'RT@132.73.201.8').
+-define(BLSERVER_NODE,   'LB@132.72.52.14).
+-define(BRSERVER_NODE,   'RB@132.72.48.220').
 
 %sensor
 -define(SENSOR_CHECK_TIME,1000).
@@ -14,6 +20,7 @@
 
 %fire
 -define(FIRE_REFRESH_SPEED,100).
+-define(FIRE_INCRESE_SPEED,200).
 
 
 %heli

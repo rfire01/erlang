@@ -303,11 +303,11 @@ randUnit(fire,Amount,EtsName) ->
 randUnit(sensor,Amount,EtsName) ->
 	X = random:uniform(?Horizontal-?SensorRadius*4)+?SensorRadius*2,
 	Y  = random:uniform(?Vertical-?SensorRadius*3)+?SensorRadius,
-	%X = random:uniform(?Horizontal),
-	%Y  = random:uniform(?Vertical),
-	SensorData = {{sensor,list_to_atom("sensor" ++ integer_to_list(Amount))},?SensorRadius,X,Y},
+	SensName=list_to_atom("sensor" ++ integer_to_list(Amount)),
+	SensorData = {{sensor,SensName},?SensorRadius,X,Y},
 	%add_to_ets(sens,SensorData,EtsName),
 	ets:insert(EtsName,SensorData),
+	ets:insert(sensAnm,{SensName,2}),
 	randUnit(sensor,Amount-1,EtsName).
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -317,7 +317,7 @@ add_units_to_screen(EtsName,Paint,SenEts) ->
 		
 	QH_fire = qlc:q([[R,X,Y] || {{fire,_},R,X,Y} <- ets:table(EtsName)]),
 	QH_heli = qlc:q([[X,Y] || {{heli,_},X,Y,_} <- ets:table(EtsName)]),
-	QH_sensor = qlc:q([[R,X,Y] || {{sensor,_},R,X,Y} <- ets:table(SenEts)]),
+	QH_sensor = qlc:q([[R,X,Y,SensName] || {{sensor,SensName},R,X,Y} <- ets:table(SenEts)]),
 
 	[ add_unit_to_screen(sensor,Unit,Paint) || Unit <- qlc:eval(QH_sensor)],
 	[ add_unit_to_screen(fire,Unit,Paint) || Unit <- qlc:eval(QH_fire)],
@@ -350,11 +350,30 @@ add_unit_to_screen(fire,[R,X,Y],Paint) ->
 		false -> do_nothing
 	end;
 	
-add_unit_to_screen(sensor,[R,X,Y],Paint) ->
+add_unit_to_screen(sensor,[R,X,Y,SensName],Paint) ->
 	%wxDC:drawCircle(Paint, {X,Y}, R).
 	case 2*round(R)>0 of
 		true -> 
-				Image1 = wxImage:new("pic/sensor/se_2.png"),
+				%ets:tab2list(),
+				[{_,PicName}] = ets:lookup(sensAnm,SensName),
+% 				case PicName==90 of
+% 				    true->  PicName=0,
+% 					    case PicName2 == 3 of
+% 						  true-> PicName2=1;
+% 						  false-> PicName2=PicName2+1
+% 					    end	
+% 				    false-> PicName3=PicName+1
+% 					    
+% 				end,
+				 case PicName == 4 of
+ 						  true-> PicName2=1;
+ 						  false-> PicName2=PicName+1
+ 				 end,
+				%ets:insert(sensAnm,{SensName,PicName2}),
+				%io:format("lookup ~p , ~p ~n",[SensName,PicName]),
+				%SensImgName="pic/sensor/se_1.png",
+				SensImgName="pic/sensor/se_" ++ integer_to_list(PicName) ++ ".png",
+				Image1 = wxImage:new(SensImgName),
 				Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
 				%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
 				Bmp = wxBitmap:new(Image2),

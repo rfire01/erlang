@@ -13,8 +13,6 @@
 -export([start_sim/1,extinguish_fire/1,merge/1]).
 
 -include("config.hrl").
-% -define(FIRE_REFRESH_SPEED,100).
-%-record(state, {code}).
  
 %%%===================================================================
 %%% API
@@ -73,6 +71,7 @@ init([Name,ServerName,StartRadius,X,Y]) ->
 	ets:insert(Ets,{myName,Name}),
 	ets:insert(Ets,{serverName,ServerName}),
 	%io:format("started fire with radius = ~p~n",[StartRadius]),
+	rand_idle_diff(),
     {ok, idle, {}}.
  
 %%--------------------------------------------------------------------
@@ -92,12 +91,18 @@ init([Name,ServerName,StartRadius,X,Y]) ->
 %%--------------------------------------------------------------------
 
 idle({start}, State) ->
-  {next_state, idle, State,?FIRE_REFRESH_SPEED};
+  rand_idle_diff(),
+  Delay = random:uniform(?FIRE_REFRESH_SPEED),
+  %io:format("Delay = ~p~n",[Delay]),
+  %timer:sleep(Delay),
+  %{next_state, idle, State,?FIRE_REFRESH_SPEED};
+  {next_state, idle, State,Delay};
 
 idle(timeout, State) ->
+	FIRE_Radius_INCRESE = random:uniform(?FIRE_INCRESE_SPEED),
 	Ets = get(ets_id),
 	[{_,Radius}] = ets:lookup(Ets,radius),
-	NewRad = Radius + 0.3,
+	NewRad = Radius + random:uniform(FIRE_Radius_INCRESE)/100,
 	ets:insert(Ets,{radius,NewRad}),
 	[{_,MyName}] = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
@@ -141,6 +146,8 @@ fire_out(_Event, State) ->
 %%--------------------------------------------------------------------
  
 idle({decrease},_From,State) ->
+	%Delay = random:uniform(?FIRE_REFRESH_SPEED),
+	%Delay=100,
 	Ets = get(ets_id),
 	[{_,Radius}] = ets:lookup(Ets,radius),
 	case Radius -0.5 =<0 of
@@ -246,3 +253,14 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+rand_idle_diff()->
+  Tmp = erlang:system_time() / erlang:monotonic_time(),
+  Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+  random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

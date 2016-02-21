@@ -13,9 +13,9 @@
 -behaviour(gen_server).
 
 % interface calls
--export([start/1,create/2,update/3,pass_server_alert/2,heli_request/3,
-		 heli_done/2,fire_check/2,fire_check/3,wx_update/1,start_sim/1,
-		 change_screen/5,transfer_heli/4]).
+-export([start/1,create/2,update/3,pass_server_alert/2,heli_request/3,heli_request/5,
+		 give_heli/3,choose_heli/3,heli_done/2,fire_check/2,fire_check/4,
+		 wx_update/1,start_sim/1,change_screen/5,transfer_heli/4]).
     
 % gen_server callbacks
 -export([init/1,handle_call/3,handle_cast/2,
@@ -33,7 +33,6 @@ start_sim(GenName) ->
     gen_server:cast({global, GenName}, {start_sim}).
 	
 create(GenName,Data) -> 
-	 io:format("######create~n",[]),
 	%Data = [{{sensor,sensor1},10,10,10},{{fire,fire1},1,30,10},{{heli,heli1},7,85,not_working}],%[ {{heli,heli1},7,85,not_working},{{heli,heli2},800,45,not_working},{{heli,heli3},180,340,not_working},
 			% {{fire,fire1},7,85,50},{{fire,fire2},800,123,50},{{fire,fire3},12,230,50},
 			 %{{sensor,sensor1},14,47,10},{{sensor,sensor2},314,147,10},{{sensor,sensor3},140,470,10}],
@@ -48,14 +47,25 @@ pass_server_alert(GenName,Data) ->
 heli_request(GenName,Sname,Fname) -> 
     gen_server:cast({global, GenName}, {heli_request,Sname,Fname}).
 	
+heli_request(GenName,FromServer,Key,BestHeli,DstCords) -> 
+    gen_server:cast({global, GenName}, {server_heli_request,FromServer,Key,BestHeli,DstCords}).
+	
+give_heli(GenName,Key,Val) -> 
+    gen_server:cast({global, GenName}, {give_heli,Key,Val}).
+	
+choose_heli(GenName,Key,Destination) -> 
+    gen_server:cast({global, GenName}, {choose_heli,Key,Destination}).	
+	
 heli_done(GenName,Name) -> 
     gen_server:cast({global, GenName}, {heli_done,Name}).
 
 fire_check(GenName,Name) -> 
-	try gen_server:call({global,GenName},{heli_fire_check,Name},3000) catch _Error:_Reason -> error_in_server end.
+	%try gen_server:call({global,GenName},{heli_fire_check,Name},3000) catch _Error:_Reason -> error_in_server end.
+	gen_server:cast({global, GenName}, {heli_fire_check,Name}).
 	
-fire_check(GenName,X,Y) -> 
-	try gen_server:call({global,GenName},{server_fire_check,X,Y},3000) catch _Error:_Reason -> error_in_server end.
+fire_check(GenName,Name,X,Y) -> 
+	%try gen_server:call({global,GenName},{server_fire_check,X,Y},3000) catch _Error:_Reason -> error_in_server end.
+	gen_server:cast({global, GenName}, {server_fire_check,Name,X,Y}).
    
 wx_update(GenName) ->
   gen_server:call({global,GenName},{wx_request}).
@@ -64,6 +74,8 @@ change_screen(GenName,NewServer,UnitInfo,UnitState,UnitStateData) ->
     gen_server:cast({global, GenName}, {change_screen,NewServer,UnitInfo,UnitState,UnitStateData}).
 	
 transfer_heli(GenName,UnitInfo,UnitState,UnitStateData) -> 
+	%[Name,_,_,_] = UnitInfo,
+	%io:format("add heli ~p request to server ~p~n",[Name,GenName]),
     gen_server:cast({global, GenName}, {transfer_heli,UnitInfo,UnitState,UnitStateData}).
   
 %%====================================================================
@@ -74,7 +86,7 @@ init([Name]) ->
 	Ets = ets:new(general_info,[set]),
 	put(ets_id,Ets),
 	ets:insert(Ets,{myInfo,Name}),
-	Sen_fire = ets:new(sen_fire,[set]),
+	Sen_fire = ets:new(sen_fire,[bag]),
 	put(sen_fire_id,Sen_fire),
 	%io:format("######end of init gen server~n",[]),
     {ok, initialized}.
@@ -95,35 +107,35 @@ handle_call({wx_request}, _From, State) ->
 	
 	{reply,qlc:eval(QH),State};
 	
-handle_call({heli_fire_check,HeliName}, _From, State) -> 
-	Ets = get(ets_id),
-	[{{heli,_},HX,HY,_}] = ets:lookup(Ets,{heli,HeliName}),
-	
-	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(Ets), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
-
-	case qlc:eval(QH) of
-		[] -> Replay = false;
-		FireList -> [Replay|_] = FireList
-	end,
-	
-	[{_,MyName}] = ets:lookup(Ets,myInfo),
-	case Replay == false of
-		true -> Replay2 = check_fire_other_server(MyName,HX,HY,[tl,tr,bl,br]);
-		false -> Replay2 = Replay
-	end,
-	
-	{reply,Replay2,State};
-	
-handle_call({server_fire_check,HX,HY}, _From, State) -> 
-	Ets = get(ets_id),
-	
-	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(Ets), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
-
-	case qlc:eval(QH) of
-		[] -> Replay = false;
-		FireList -> [Replay|_] = FireList
-	end,
-	{reply,Replay,State};
+%handle_call({heli_fire_check,HeliName}, _From, State) -> 
+%	Ets = get(ets_id),
+%	[{{heli,_},HX,HY,_}] = ets:lookup(Ets,{heli,HeliName}),
+%	
+%	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(Ets), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
+%
+%	case qlc:eval(QH) of
+%		[] -> Replay = false;
+%		FireList -> [Replay|_] = FireList
+%	end,
+%	
+%	[{_,MyName}] = ets:lookup(Ets,myInfo),
+%	case Replay == false of
+%		true -> Replay2 = check_fire_other_server(MyName,HX,HY,[tl,tr,bl,br]);
+%		false -> Replay2 = Replay
+%	end,
+%	
+%	{reply,Replay2,State};
+%	
+%handle_call({server_fire_check,HX,HY}, _From, State) -> 
+%	Ets = get(ets_id),
+%	
+%	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(Ets), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
+%
+%	case qlc:eval(QH) of
+%		[] -> Replay = false;
+%		FireList -> [Replay|_] = FireList
+%	end,
+%	{reply,Replay,State};
 
 handle_call(Message, From, State) -> 
     io:format("Generic call handler: '~p' from '~p' while in '~p'~n",[Message, From, State]),
@@ -139,15 +151,24 @@ handle_cast({create,DataList}, State) ->
 	Ets = get(ets_id),
 	[{_,MyName}] = ets:lookup(Ets,myInfo),
 	
+	QH2 = qlc:q([Name || {{_,Name},_,_,_} <- ets:table(Ets)]),
+	[ io:format("unit ~p is ~p~n",[TName,global:whereis_name(TName)]) || TName <- qlc:eval(QH2)],
+	
 	%io:format("stoping all old fsms ~n"),
 	ObjList = ets:tab2list(Ets),
 	[gen_fsm:stop({global,H}) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
+	%AllUnits = [H || {{_,H},_,_,_} <- ObjList],%, global:whereis_name(H) /=undefined],
+	%[ gen_fsm:stop({global,Unit}) || Unit <- AllUnits, global:whereis_name(Unit) /=undefined],
+	%wait_done(AllUnits),
 	ets:delete_all_objects(Ets),
 	
 	ets:insert(Ets,{myInfo,MyName}),
 	
-	io:format("insert data: ~p~n",[DataList]),
+	%io:format("insert data: ~p~n",[DataList]),
 	ets:insert(Ets,DataList),
+	
+	QH = qlc:q([Name || {{_,Name},_,_,_} <- ets:table(Ets)]),
+	wait_done(qlc:eval(QH)),
 	%io:format("starting helicopters ~n"),
 	HeliList = ets:match(Ets,{{heli,'$1'},'$2','$3','_'}),
 	[heli:start(Name,MyName,X,Y) || [Name,X,Y] <- HeliList],
@@ -225,19 +246,65 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 	case Exists of
 		true -> do_nothing;%, io:format("heli already sent ~n");
 		false ->  QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(Ets)]),
+				  [{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
+				  [{_,MyName}] = ets:lookup(Ets,myInfo),
 				   case qlc:eval(QH)  of
-						[]-> wait_for_free_heli;%, io:format("wait_for_free_heli ~n");
-						HeliList -> [{{_,_},_,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
-									{Name,X,Y} = closest_heli(HeliList,SX,SY),
-									ets:insert(Sen_fire,{{Sen_name,Fire_Name},true}),
-									ets:insert(Ets,{{heli,Name},X,Y,working}),
-									[{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
-									%io:format("sending heli ~p~n",[Name]),
-									heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
-				   end
+						[]-> Dist = ?Horizontal * ?Horizontal * ?Horizontal;%, io:format("wait_for_free_heli ~n");
+						HeliList -> 
+									{Name,X,Y,Dist} = closest_heli(HeliList,SX+SR,SY),
+									ets:insert(Sen_fire,{{Sen_name,Fire_Name},{Name,Dist,MyName}}),
+									ets:insert(Ets,{{heli,Name},X,Y,working})
+									%[{{_,_},SR,SX,SY}] = ets:lookup(Ets,{sensor,Sen_name}),
+									%heli:move_dst(Name,SX+SR,SY,{SR,SX,SY,0})
+									
+									
+				   end,
+				   ets:delete(Sen_fire,{{Sen_name,Fire_Name},done}),
+				   [ unit_server:heli_request(Serv,MyName,{Sen_name,Fire_Name},Dist,{SX+SR,SY})|| Serv <- [tl,tr,bl,br], Serv /=MyName],
+				   spawn(fun() -> timer:sleep(1000), unit_server:choose_heli(MyName,{Sen_name,Fire_Name},{SR,SX,SY}) end)
 	end,
 	
 	{noreply, State};	
+	
+handle_cast({server_heli_request,FromServer,Key,MinDist,{DstX,DstY}}, State) ->
+	Ets = get(ets_id),
+	[{_,MyName}] = ets:lookup(Ets,myInfo),
+	QH = qlc:q([{HName,HX,HY} || {{heli,HName},HX,HY,not_working} <- ets:table(Ets), (DstX-HX) * (DstX-HX) + (DstY-HY) * (DstY-HY) < MinDist]),
+	case qlc:eval(QH) of
+		[] -> do_nothing;
+		HeliList -> {Name,X,Y,Dist} = closest_heli(HeliList,DstX,DstY),
+					ets:insert(Ets,{{heli,Name},X,Y,working}),
+					unit_server:give_heli(FromServer,Key,{Name,Dist,MyName})
+	end,
+	{noreply, State};
+	
+handle_cast({give_heli,Key,Val}, State) ->
+	%Ets = get(ets_id),
+	%[{_,MyName}] = ets:lookup(Ets,myInfo),
+	
+	Sen_fire = get(sen_fire_id),
+	
+	case ets:member(Sen_fire,{Key,done}) of
+		false -> ets:insert(Sen_fire,{Key,Val});
+		true -> {Name,_,Serv}=Val,
+				unit_server:heli_done(Serv,Name)
+	end,
+	%io:format("heli added = ~p, key = ~p in server ~p~n",[Val,Key,MyName]),
+	{noreply, State};
+	
+handle_cast({choose_heli,Key,{R,X,Y}}, State) ->
+	Sen_fire = get(sen_fire_id),
+	ets:insert(Sen_fire,{{Key,done},done}),
+	HeliList = ets:lookup(Sen_fire,Key),
+	%Ets = get(ets_id),
+	%[{_,MyName}] = ets:lookup(Ets,myInfo),
+	%io:format("heli list = ~p, Key = ~p in server ~p~n",[HeliList,Key,MyName]),
+	case servers_closest_heli(HeliList) of
+		{ChoosenHeli,OtherHeli} -> [ unit_server:heli_done(HeliServer,Heli) || {Heli,HeliServer} <- OtherHeli],
+									heli:move_dst(ChoosenHeli,X+R,Y,{R,X,Y,0});
+		no_heli -> do_nothing
+	end,
+	{noreply, State};
 					
 handle_cast({heli_done,Name}, State) ->
 	Ets = get(ets_id),
@@ -250,10 +317,11 @@ handle_cast({change_screen,NewServer,UnitInfo,UnitState,UnitStateData}, State) -
 	[Name,X,Y] = UnitInfo,
 	[{{_,_},_,_,WorkState}] = ets:lookup(Ets,{heli,Name}),
 	ets:delete(Ets,{heli,Name}),
-	wait_done([Name]),
+	%wait_done([Name]),
+	
 	
 	%[{_,MyName}] = ets:lookup(Ets,myInfo),
-	%io:format("transfer from ~p to ~p~n",[MyName,NewServer]),
+	%io:format("transfer ~p from ~p to ~p~n",[Name,MyName,NewServer]),
 	
 	unit_server:transfer_heli(NewServer,[Name,X,Y,WorkState],UnitState,UnitStateData),
 	
@@ -264,8 +332,47 @@ handle_cast({transfer_heli,UnitInfo,UnitState,UnitStateData}, State) ->
 	[Name,X,Y,WorkState] = UnitInfo,
 	ets:insert(Ets,{{heli,Name},X,Y,WorkState}),
 	[{_,MyName}] = ets:lookup(Ets,myInfo),
-	
+	%io:format("recovering heli ~p at ~p~n",[Name,MyName]),
+	wait_done([Name]),
 	heli:recover(Name,MyName,X,Y,UnitState,UnitStateData),
+	%io:format("result of tranfer of heli ~p to server ~p, gave ~p~n",[Name,MyName,Res]),
+	
+	{noreply, State};
+	
+handle_cast({heli_fire_check,HeliName}, State) -> 
+	Ets = get(ets_id),
+	[{{heli,_},HX,HY,_}] = ets:lookup(Ets,{heli,HeliName}),
+	
+	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(Ets), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
+
+	case qlc:eval(QH) of
+		[] -> Replay = false;
+		FireList -> [Replay|_] = FireList
+	end,
+	
+	[{_,MyName}] = ets:lookup(Ets,myInfo),
+	case Replay == false of
+		true -> check_fire_other_server(MyName,HeliName,HX,HY,[tl,tr,bl,br]);
+		false -> heli:found_fire(HeliName,Replay)
+	end,
+	
+	
+	{noreply, State};
+	
+handle_cast({server_fire_check,HeliName,HX,HY},  State) -> 
+	Ets = get(ets_id),
+	
+	QH = qlc:q([[FName,FR,FX,FY] || {{fire,FName},FR,FX,FY} <- ets:table(Ets), ((FX-HX)*(FX-HX) + (FY-HY)*(FY-HY))< FR*FR]),
+
+	case qlc:eval(QH) of
+		[] -> Replay = false;
+		FireList -> [Replay|_] = FireList
+	end,
+	
+	case Replay == false of
+		true -> do_nothing;
+		false -> heli:found_fire(HeliName,Replay)
+	end,
 	
 	{noreply, State};
 
@@ -309,12 +416,22 @@ closest_heli([{Name,HX,HY}|T],SX,SY) ->
 	DistSquare = (HX-SX) * (HX-SX) + (HY-SY) * (HY-SY),
 	closest_heli(T,{Name,DistSquare,HX,HY},SX,SY).
 
-closest_heli([],{Name,_BestDist,X,Y},_SX,_SY) -> {Name,X,Y};
+closest_heli([],{Name,BestDist,X,Y},_SX,_SY) -> {Name,X,Y,BestDist};
 closest_heli([{Name,HX,HY}|T],{BestName,BestDist,BestX,BestY},SX,SY) ->
 	DistSquare = (HX-SX) * (HX-SX) + (HY-SY) * (HY-SY),
 	case DistSquare < BestDist of
 		true -> closest_heli(T,{Name,DistSquare,HX,HY},SX,SY);
 		false -> closest_heli(T,{BestName,BestDist,BestX,BestY},SX,SY)
+	end.
+	
+servers_closest_heli([]) -> no_heli;
+servers_closest_heli([{{_,_},{Name,Dist,Server}}|T]) -> servers_closest_heli(T,Name,Dist,Server,[]).
+
+servers_closest_heli([],Name,_Dist,_Server,Rest) -> {Name,Rest};
+servers_closest_heli([{{_,_},{NextName,NextDist,NextServer}}|T],Name,Dist,Server,Rest) ->
+	case NextDist < Dist of 
+		true -> servers_closest_heli(T,NextName,NextDist,NextServer,[{Name,Server}|Rest]);
+		false -> servers_closest_heli(T,Name,Dist,Server, [{NextName,NextServer}|Rest])
 	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -353,16 +470,13 @@ wait_done([H|T]) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-check_fire_other_server(_CurrentServerName,_X,_Y,[]) -> false;
-check_fire_other_server(CurrentServerName,X,Y,[H|T]) when H==CurrentServerName -> 
-	check_fire_other_server(CurrentServerName,X,Y,T);
-check_fire_other_server(CurrentServerName,X,Y,[H|T]) when H/=CurrentServerName -> 	
+check_fire_other_server(_CurrentServerName,_HeliName,_X,_Y,[]) -> done;
+check_fire_other_server(CurrentServerName,HeliName,X,Y,[H|T]) when H==CurrentServerName -> 
+	check_fire_other_server(CurrentServerName,HeliName,X,Y,T);
+check_fire_other_server(CurrentServerName,HeliName,X,Y,[H|T]) when H/=CurrentServerName -> 	
 	case global:whereis_name(H) of
-		undefined -> check_fire_other_server(CurrentServerName,X,Y,T);
-		_Pid -> case unit_server:fire_check(H,X,Y) of
-					false -> check_fire_other_server(CurrentServerName,X,Y,T);
-					error_in_server -> check_fire_other_server(CurrentServerName,X,Y,T);
-					Any -> Any
-				end
+		undefined -> check_fire_other_server(CurrentServerName,HeliName,X,Y,T);
+		_Pid -> unit_server:fire_check(H,HeliName,X,Y),
+				check_fire_other_server(CurrentServerName,HeliName,X,Y,T)
 	end.
 	

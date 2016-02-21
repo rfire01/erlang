@@ -183,8 +183,8 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
 				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(fire,FireNum,State#state.ets_name),
 				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
-				randUnit(sensor,SenNum,State#state.sen_ets_name),
-				io:format("ets = ~p~n",[ets:tab2list(State#state.ets_name)]);
+				randUnit(sensor,SenNum,State#state.sen_ets_name);
+				%io:format("ets = ~p~n",[ets:tab2list(State#state.ets_name)]);
 		false -> io:format("please enter NUMBERS into amount of units~n")
 	end,
 	
@@ -401,7 +401,7 @@ divide_unit_to_screens(MainEts,SenEts)->
 	QH_bl_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X<?Horizontal/2, Y>?Vertical/2]),
 	QH_br_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X>?Horizontal/2, Y>?Vertical/2]),
 	
-	io:format("SENSORS ARE = ~p~n Hor/2 =~p ; Ver/2 = ~p~n",[ets:tab2list(SenEts),?Horizontal/2,?Vertical/2]),
+	%io:format("SENSORS ARE = ~p~n Hor/2 =~p ; Ver/2 = ~p~n",[ets:tab2list(SenEts),?Horizontal/2,?Vertical/2]),
 	QH_tl_sensor = qlc:q([ {{sensor,Name},R,X,Y}|| {{sensor,Name},R,X,Y} <- ets:table(SenEts), X<?Horizontal/2, Y<?Vertical/2]),
 	QH_tr_sensor = qlc:q([ {{sensor,Name},R,X,Y}|| {{sensor,Name},R,X,Y} <- ets:table(SenEts), X>?Horizontal/2, Y<?Vertical/2]),
 	QH_bl_sensor = qlc:q([ {{sensor,Name},R,X,Y}|| {{sensor,Name},R,X,Y} <- ets:table(SenEts), X<?Horizontal/2, Y>?Vertical/2]),
@@ -411,10 +411,10 @@ divide_unit_to_screens(MainEts,SenEts)->
 	TR_list = qlc:eval(QH_tr_fire) ++ qlc:eval(QH_tr_heli) ++ qlc:eval(QH_tr_sensor),
 	BL_list = qlc:eval(QH_bl_fire) ++ qlc:eval(QH_bl_heli) ++ qlc:eval(QH_bl_sensor),
 	BR_list = qlc:eval(QH_br_fire) ++ qlc:eval(QH_br_heli) ++ qlc:eval(QH_br_sensor),
-	io:format("TL = ~p~n",[TL_list]),
-	io:format("TR = ~p~n",[TR_list]),
-	io:format("BL = ~p~n",[BL_list]),
-	io:format("BR = ~p~n",[BR_list]),
+	%io:format("TL = ~p~n",[TL_list]),
+	%io:format("TR = ~p~n",[TR_list]),
+	%io:format("BL = ~p~n",[BL_list]),
+	%io:format("BR = ~p~n",[BR_list]),
 	[TL_list,TR_list,BL_list,BR_list].
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

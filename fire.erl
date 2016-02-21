@@ -72,7 +72,7 @@ init([Name,ServerName,StartRadius,X,Y]) ->
 	ets:insert(Ets,{y,Y}),
 	ets:insert(Ets,{myName,Name}),
 	ets:insert(Ets,{serverName,ServerName}),
-	io:format("started fire with radius = ~p~n",[StartRadius]),
+	%io:format("started fire with radius = ~p~n",[StartRadius]),
     {ok, idle, {}}.
  
 %%--------------------------------------------------------------------

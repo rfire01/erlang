@@ -9,10 +9,10 @@
 %-define(BRSERVER_NODE,   'BRserver@127.0.0.1').
 
 -define(WX_SERVER_NODE, 'wx_server@132.73.201.153').
--define(TLSERVER_NODE,   'LT@132.72.52.49').
--define(TRSERVER_NODE,   'RT@132.73.201.8').
--define(BLSERVER_NODE,   'LB@132.72.52.14).
--define(BRSERVER_NODE,   'RB@132.72.48.220').
+-define(TLSERVER_NODE,   'LT@132.72.104.211').
+-define(TRSERVER_NODE,   'RT@132.72.104.213').
+-define(BLSERVER_NODE,   'LB@132.73.201.8').
+-define(BRSERVER_NODE,   'RB@132.72.104.212').
 
 %sensor
 -define(SENSOR_CHECK_TIME,1000).
@@ -20,7 +20,7 @@
 
 %fire
 -define(FIRE_REFRESH_SPEED,100).
--define(FIRE_INCRESE_SPEED,200).
+-define(FIRE_INCRESE_SPEED,50).
 
 
 %heli

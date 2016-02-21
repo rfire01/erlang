@@ -92,6 +92,8 @@ do_init(Server) ->
 	ets:new(simData,[set,public,named_table]),
 	ets:new(senEts,[set,public,named_table]),
 	ets:new(sensAnm,[set,public,named_table]),
+	
+	ets:insert(sensAnm,{picNum,1}),
 	%ets:insert(simData,{heli,[]}),
 	%ets:insert(simData,{fire,[]}),
 	%ets:insert(simData,{sens,[]}),
@@ -219,6 +221,17 @@ handle_event(Ev = #wx{}, State = #state{}) ->
 %% Callbacks handled as normal gen_server callbacks
 
 handle_info(refresh,State=#state{})->
+
+	%animation of sensor:
+	
+	[{_,PicNum}] = ets:lookup(sensAnm,picNum),
+	case PicNum==21 of
+		true -> ets:insert(sensAnm,{picNum,1});
+		false -> ets:insert(sensAnm,{picNum,PicNum+1})
+	end,
+	
+	%end animation of sensor:
+	
 	Updated_list = unit_server:wx_update(tl) ++ unit_server:wx_update(tr) ++ unit_server:wx_update(bl) ++ unit_server:wx_update(br),
 	ets:delete_all_objects(State#state.ets_name),
 	ets:insert(State#state.ets_name,Updated_list),
@@ -350,40 +363,31 @@ add_unit_to_screen(fire,[R,X,Y],Paint) ->
 		false -> do_nothing
 	end;
 	
-add_unit_to_screen(sensor,[R,X,Y,SensName],Paint) ->
-	%wxDC:drawCircle(Paint, {X,Y}, R).
-	case 2*round(R)>0 of
-		true -> 
-				%ets:tab2list(),
-				[{_,PicName}] = ets:lookup(sensAnm,SensName),
-% 				case PicName==90 of
-% 				    true->  PicName=0,
-% 					    case PicName2 == 3 of
-% 						  true-> PicName2=1;
-% 						  false-> PicName2=PicName2+1
-% 					    end	
-% 				    false-> PicName3=PicName+1
-% 					    
-% 				end,
-				 case PicName == 4 of
- 						  true-> PicName2=1;
- 						  false-> PicName2=PicName+1
- 				 end,
-				%ets:insert(sensAnm,{SensName,PicName2}),
-				%io:format("lookup ~p , ~p ~n",[SensName,PicName]),
-				%SensImgName="pic/sensor/se_1.png",
-				SensImgName="pic/sensor/se_" ++ integer_to_list(PicName) ++ ".png",
-				Image1 = wxImage:new(SensImgName),
-				Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
-				%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
-				Bmp = wxBitmap:new(Image2),
-				wxImage:destroy(Image1),
-				wxImage:destroy(Image2),
-				%%%%%%%%%%%%wxImage:destroy(Image51),
-				wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
-				wxBitmap:destroy(Bmp);
-		false -> do_nothing
-	end.
+add_unit_to_screen(sensor,[R,X,Y,_SensName],Paint) ->
+ 
+	%ets:tab2list(),
+	
+	%% ---------------yoed code
+%	[{_,PicName}] = ets:lookup(sensAnm,SensName),
+%	 case PicName == 4 of
+%			  true-> PicName2=1;
+%			  false-> PicName2=PicName+1
+%	 end,
+%	SensImgName="pic/sensor/se_" ++ integer_to_list(PicName) ++ ".png",
+	%% ---------------end yoed code
+	
+	[{_,PicNum}] = ets:lookup(sensAnm,picNum),
+	SensImgName="sensorPics/sensor" ++ integer_to_list(PicNum) ++ ".png",
+	Image1 = wxImage:new(SensImgName),
+	Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
+	%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
+	Bmp = wxBitmap:new(Image2),
+	wxImage:destroy(Image1),
+	wxImage:destroy(Image2),
+	%%%%%%%%%%%%wxImage:destroy(Image51),
+	wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
+	wxBitmap:destroy(Bmp).
+	%% ---------------end yoed code
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 	

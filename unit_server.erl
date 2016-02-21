@@ -68,7 +68,7 @@ fire_check(GenName,Name,X,Y) ->
 	gen_server:cast({global, GenName}, {server_fire_check,Name,X,Y}).
    
 wx_update(GenName) ->
-  gen_server:call({global,GenName},{wx_request}).
+  gen_server:call({global,GenName},{wx_request},infinity).
   
 change_screen(GenName,NewServer,UnitInfo,UnitState,UnitStateData) -> 
     gen_server:cast({global, GenName}, {change_screen,NewServer,UnitInfo,UnitState,UnitStateData}).

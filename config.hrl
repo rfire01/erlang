@@ -30,7 +30,7 @@
 -define(MINY, 0-?HELI_PIC_HALF).
 
 -define(MOVEMENT_SPEED,100).
--define(REFRESH_SPEED,10).
+-define(REFRESH_SPEED,20).
 -define(EXTINGUISH_SPEED,40).
 
 %unit_server

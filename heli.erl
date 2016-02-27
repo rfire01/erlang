@@ -8,7 +8,8 @@
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,move_destination/2,move_destination/3, handle_event/3,
 		search_circle/2, search_circle/3,extinguish/2,recover/6,found_fire/2,
-     handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
+     handle_sync_event/4, handle_info/3, terminate/3, code_change/4,
+	 crash/1,crash_recover/2]).
  
 -export([start_sim/1,move_dst/4,move_circle/2]).
 -include("config.hrl").
@@ -55,6 +56,12 @@ recover(Name,ServerName,X,Y,State,Data) ->
   
 found_fire(Name,[NF,RF,XF,YF]) -> 
 	gen_fsm:send_event({global,Name}, {found_fire, [NF,RF,XF,YF]}).
+	
+crash(Name) ->
+	gen_fsm:send_all_state_event({global, Name}, {crash,0}).	
+	
+crash_recover(Name,Data) ->
+    gen_fsm:start({global, Name}, ?MODULE, [crash,Data], []).
  
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -74,8 +81,12 @@ found_fire(Name,[NF,RF,XF,YF]) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Name,ServerName,X,Y]) ->
+	
+	MonName = list_to_atom(atom_to_list(ServerName) ++ "mon"),
+	MonPid = global:whereis_name(MonName),
+	
 	%process_flag(trap_exit, true),
-    Ets = ets:new(cord,[set]),
+    Ets = ets:new(cord,[set,{heir,MonPid , {heli,Name}}]),
 	put(ets_id,Ets),
     ets:insert(Ets,{x,X}),
     ets:insert(Ets,{y,Y}),
@@ -84,9 +95,12 @@ init([Name,ServerName,X,Y]) ->
     {ok, idle, {}};
 	
 init([Name,ServerName,X,Y,State,Data]) ->
+	MonName = list_to_atom(atom_to_list(ServerName) ++ "mon"),
+	MonPid = global:whereis_name(MonName),
+
 	%process_flag(trap_exit, true),
 	%io:format("recovering heli ~p at ~p~n",[Name,ServerName]),
-    Ets = ets:new(cord,[set]),
+    Ets = ets:new(cord,[set,{heir,MonPid , {heli,Name}}]),
 	put(ets_id,Ets),
     ets:insert(Ets,{x,X}),
     ets:insert(Ets,{y,Y}),
@@ -95,7 +109,25 @@ init([Name,ServerName,X,Y,State,Data]) ->
 	case State of
 		extinguish -> {ok, State, Data,?EXTINGUISH_SPEED};
 		_Any -> {ok, State, Data,?REFRESH_SPEED}
-	end.
+	end;
+	
+init([crash,Data]) ->
+	Ets=ets:new(cord,[set]),
+	put(ets_id,Ets),
+	ets:insert(Ets,Data),
+	[{_,Name}] = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	
+	MonName = list_to_atom(atom_to_list(ServerName) ++ "mon"),
+	MonPid = global:whereis_name(MonName),
+	
+	ets:setopts(Ets,{heir,MonPid , {heli,Name}}),
+	loc_monitor:add_mon(MonName,global:whereis_name(Name)),
+	
+	heli:start_sim(Name),
+	unit_server:heli_done(ServerName,Name),
+	
+    {ok, idle, {}}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -143,8 +175,9 @@ idle(timeout, {DifX,DifY}) ->
   case check_screen(CurrentX,CurrentY) of
 	ServerName -> unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 				  {next_state, idle, {NewDifX,NewDifY},?REFRESH_SPEED};
-	OtherServer -> unit_server:change_screen(ServerName,OtherServer,[MyName,CurrentX,CurrentY],idle,{NewDifX,NewDifY}),
-				   {stop,normal,{}}
+	OtherServer -> wait_for_server_recover(ServerName,OtherServer,[MyName,CurrentX,CurrentY],idle,{NewDifX,NewDifY})
+					%unit_server:change_screen(ServerName,OtherServer,[MyName,CurrentX,CurrentY],idle,{NewDifX,NewDifY}),
+				   %{stop,normal,{}}
 				   
   end;
 
@@ -196,13 +229,15 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective}) ->
 				DifAngle = calc_angle_diff(CR),
 				case Need_to_change_screen of 
 					false -> {next_state,search_circle,{CR,CX,CY,A,DifAngle,Objective},?REFRESH_SPEED};
-					Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{CR,CX,CY,A,DifAngle,Objective}),
-							{stop,normal,{}}
+					Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{CR,CX,CY,A,DifAngle,Objective})
+							%unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{CR,CX,CY,A,DifAngle,Objective}),
+							%{stop,normal,{}}
 				end;
 		false -> case Need_to_change_screen of
 					false -> {next_state,move_destination,{DifX,DifY,DstX,DstY,Objective},?REFRESH_SPEED};
-					Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{DifX,DifY,DstX,DstY,Objective}),
-							{stop,normal,{}}
+					Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{DifX,DifY,DstX,DstY,Objective})
+							%unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{DifX,DifY,DstX,DstY,Objective}),
+							%{stop,normal,{}}
 				 end
 	end;
 	
@@ -233,13 +268,15 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,SensorData}) ->
 				unit_server:heli_done(ServerName,MyName),
 				case Need_to_change_screen of 
 					false -> {next_state,idle,{DifX,DifY},?REFRESH_SPEED};
-					Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],idle,{DifX,DifY}),
-							{stop,normal,{}}
+					Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],idle,{DifX,DifY})
+							%unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],idle,{DifX,DifY}),
+							%{stop,normal,{}}
 				end;
 		false -> case Need_to_change_screen of
 					false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,SensorData},?REFRESH_SPEED};
-					Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,SensorData}),
-							{stop,normal,{}}
+					Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,SensorData})
+							%unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,SensorData}),
+							%{stop,normal,{}}
 				 end
 	end;
 	
@@ -313,8 +350,9 @@ extinguish(timeout,{circle,N,R,X,Y,Angle,SensorData}) ->
 	case FireState of
 	    fire_alive-> case Need_to_change_screen of
 						false -> {next_state,extinguish,{circle,N,NewR,X,Y,Angle + DifAngle,SensorData},?EXTINGUISH_SPEED};
-						Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],extinguish,{circle,N,NewR,X,Y,Angle + DifAngle,SensorData}),
-								{stop,normal,{}}
+						Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],extinguish,{circle,N,NewR,X,Y,Angle + DifAngle,SensorData})
+								%unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],extinguish,{circle,N,NewR,X,Y,Angle + DifAngle,SensorData}),
+								%{stop,normal,{}}
 					 end;
 						
 	    fire_dead->  %{DifX,DifY} = rand_idle_diff(),
@@ -326,8 +364,9 @@ extinguish(timeout,{circle,N,R,X,Y,Angle,SensorData}) ->
 					  {NextDifX,NextDifY} = calc_destination_movement_diffs(NextAngle),
 					  case Need_to_change_screen of
 						false -> {next_state,move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData},?REFRESH_SPEED};
-						Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData}),
-								{stop,normal,{}}
+						Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData})
+								%unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData}),
+								%{stop,normal,{}}
 					  end
 					  
 					  %{next_state, idle, {DifX,DifY},?REFRESH_SPEED}
@@ -362,8 +401,9 @@ extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData}) ->
 					 {_,_,Data,_} = NextState,
 					 case Need_to_change_screen of
 						false -> NextState;
-						Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],extinguish,Data),
-								{stop,normal,{}}
+						Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],extinguish,Data)
+								%unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],extinguish,Data),
+								%{stop,normal,{}}
 					 end;
 	    fire_dead->  %{DifX,DifY} = rand_idle_diff(),
 					  %io:format("fire_dead~n"),
@@ -374,8 +414,9 @@ extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData}) ->
 					  {NextDifX,NextDifY} = calc_destination_movement_diffs(NextAngle),
 					  case Need_to_change_screen of
 						false -> {next_state,move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData},?REFRESH_SPEED};
-						Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData}),
-								{stop,normal,{}}
+						Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData})
+								%unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData}),
+								%{stop,normal,{}}
 					 end
 					  %{next_state, idle, {DifX,DifY},?REFRESH_SPEED}
 	end;
@@ -430,9 +471,12 @@ search_circle(_Event, _From, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
+handle_event({crash,Num}, StateName, _State) ->
+    {next_state, StateName, 1/Num};
+
 handle_event(_Event, StateName, State) ->
-	io:format("got to handle event because of ~p in state ~p~n",[_Event,StateName]),
-    {next_state, StateName, State}.
+	%io:format("got to handle event because of ~p in state ~p~n",[_Event,StateName]),
+    {next_state, StateName, State,?REFRESH_SPEED}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -646,4 +690,14 @@ check_screen(X,Y) ->
 					true -> bl;
 					false -> tl
 				 end
+	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+wait_for_server_recover(ServerName,Serv,Data,State,StateData) ->
+	case (global:whereis_name(ServerName) /= undefined) and (global:whereis_name(Serv) /= undefined) of
+		true -> unit_server:change_screen(ServerName,Serv,Data,State,StateData),
+				{stop,normal,{}};
+		false -> timer:sleep(?REFRESH_SPEED),
+				 wait_for_server_recover(ServerName,Serv,Data,State,StateData)
 	end.

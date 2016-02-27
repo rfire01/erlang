@@ -7,6 +7,8 @@
 -export([start/0, init/1, terminate/2,  code_change/3,
 	 handle_info/2, handle_call/3, handle_cast/2, handle_event/2]).
 	 
+-export([crash/0,crash_recover/2]).
+	 
 -include("config.hrl").	 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %-define(Horizontal,				1200).
@@ -34,12 +36,85 @@
 start() ->
 	Server = wx:new(),
     wx_object:start(?MODULE, Server, []).
+	
+crash() -> Pid = whereis(wx_server),
+		   Pid ! {crash,0}.
+		   
+crash_recover(MainData,SenData) -> 
+	Server = wx:new(),
+    wx_object:start(?MODULE, [Server,MainData,SenData], []).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 init(Server) ->
         wx:batch(fun() -> do_init(Server) end).
 
+do_init([Server,MainData,SenData]) ->
+	register(wx_server,self()),
+	
+	Frame = wxFrame:new(Server, -1, "wx test sim", [{size,{?Horizontal, ?Vertical}}]),		%%create frame for the simulator
+	Panel  = wxPanel:new(Frame,[{style, ?wxFULL_REPAINT_ON_RESIZE}]),						%%create panel from the frame
+	wxFrame:show(Frame),																	%%show the frame on the screen	
+	
+	wxButton:new(Panel, 10, [{label, "&Start Game"},{pos,{3,13}},{size,{95,30}}]),			%%start game button
+	Rand=wxButton:new(Panel, 11, [{label, "&Randomize"},{pos,{105,13}},{size,{95,30}}]),		%%randomize game button
+	
+	wxWindow:connect(Panel, command_button_clicked),
+	
+	Map1 = wxImage:new("pic/forest_3.jpg"),														%%background image
+	Map_1 = wxImage:scale(Map1, ?Horizontal,?Vertical),										%%scale image
+	wxImage:destroy(Map1),
+	
+	%static texts
+	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{210,22}}]),
+	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{480,22}}]),
+	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{720,22}}]),
+	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{340,18}}]), %set default value
+    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{580,18}}]),
+	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{830,18}}]),
+	
+	MonPid = global:whereis_name(wxMon),
+	
+	io:format("done~n"),
+	ets:new(simData,[set,named_table,{heir,MonPid,{wxServer,main}}]),
+	io:format("done2~n"),
+	ets:new(senEts,[set,named_table,{heir,MonPid,{wxServer,sen}}]),
+	
+	io:format("done3~n"),
+	[ ets:insert(simData,Data) || Data <- MainData],
+	io:format("done4~n"),
+	[ ets:insert(senEts,Data) || Data <- SenData],
+	
+	loc_monitor:add_mon(wxMon,self()),
+	
+	io:format("done5~n"),
+	ets:new(sensAnm,[set,named_table]),
+	
+	ets:insert(sensAnm,{picNum,1}),
+	
+	io:format("done6~n"),
+	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,self=self()},
+	
+	io:format("done7~n"),
+	OnPaint=fun(_Evt,_Obj)->%%function to do when paint event called
+					
+					Paint=wxBufferedPaintDC:new(Panel),
+					Bitmap=wxBitmap:new(Map_1),
+					wxDC:drawBitmap(Paint,Bitmap,{0,0}),
+					wxBitmap:destroy(Bitmap),
+					add_units_to_screen(simData,Paint,senEts),
+					
+					wxBufferedPaintDC:destroy(Paint) end,					
+	wxFrame:connect(Panel, paint, [{callback,OnPaint}]),%%connect paint event to panel with callbakc function OnPaint
+	
+	%io:format("########### ~p ##############3 ~n",[global:whereis_name(full)]),
+	S=self(),
+	io:format("done8~n"),
+	register(refresher, spawn_link(fun() -> loop(S) end)),
+	
+	{Panel, State};
+		
 do_init(Server) ->
+	register(wx_server,self()),
 	%%----------- init local servers (for each part of screen)
 	case connect_to_nodes([?TLSERVER_NODE,?TRSERVER_NODE,?BLSERVER_NODE,?BRSERVER_NODE]) of
 		ok -> case global:whereis_name(tl) == undefined of
@@ -89,9 +164,14 @@ do_init(Server) ->
     Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{580,18}}]),
 	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{830,18}}]),
 	
-	ets:new(simData,[set,public,named_table]),
-	ets:new(senEts,[set,public,named_table]),
-	ets:new(sensAnm,[set,public,named_table]),
+	loc_monitor:start(wxMon),
+	MonPid = global:whereis_name(wxMon),
+	
+	ets:new(simData,[set,named_table,{heir,MonPid,{wxServer,main}}]),
+	ets:new(senEts,[set,named_table,{heir,MonPid,{wxServer,sen}}]),
+	ets:new(sensAnm,[set,named_table]),
+	
+	loc_monitor:add_mon(wxMon,self()),
 	
 	ets:insert(sensAnm,{picNum,1}),
 	%ets:insert(simData,{heli,[]}),
@@ -108,43 +188,13 @@ do_init(Server) ->
 					wxBitmap:destroy(Bitmap),
 					add_units_to_screen(simData,Paint,senEts),
 					
-					%helicopter
-					%[{_,X}] = ets:lookup(cord,x),
-					%[{_,Y}] = ets:lookup(cord,y),
-					%%%%%%%io:format("(x,y) = (~p,~p)~n",[X,Y]),
-					
-					%Image3 = wxImage:new("4.jpg"),
-					%Image4 = wxImage:scale(Image3, 100,100),
-					%%%%%%%%%%%%%%%%%%%%Image5 = wxImage:rotate(Image4, Angle, {200,200}),
-					%Bmp1 = wxBitmap:new(Image4),	
-					%wxImage:destroy(Image3),
-					%wxImage:destroy(Image4),
-					%%%%%%%%%%wxImage:destroy(Image5),
-					%wxDC:drawBitmap(Paint, Bmp1, {round(X)-100,round(Y)-100}),
-					%wxBitmap:destroy(Bmp1),
-					
-					%fire
-					%[{_,FX}] = ets:lookup(firedata,x),
-					%[{_,FY}] = ets:lookup(firedata,y),
-					%[{_,FR}] = ets:lookup(firedata,radius),
-					%%%%%%%%%io:format("(x,y) = (~p,~p,~p)~n",[FX,FY,FR]),
-					
-					%Image31 = wxImage:new("fire_1.png"),
-					%Image41 = wxImage:scale(Image31, 2*round(FR),2*round(FR)),
-					%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
-					%Bmp11 = wxBitmap:new(Image41),
-					%wxImage:destroy(Image31),
-					%wxImage:destroy(Image41),
-					%%%%%%%%%%%%wxImage:destroy(Image51),
-					%wxDC:drawBitmap(Paint, Bmp11, {round(FX-FR),round(FY-FR)}),
-					%wxBitmap:destroy(Bmp11),
-					
 					wxBufferedPaintDC:destroy(Paint) end,					
 	wxFrame:connect(Panel, paint, [{callback,OnPaint}]),%%connect paint event to panel with callbakc function OnPaint
 	
 	%io:format("########### ~p ##############3 ~n",[global:whereis_name(full)]),
 	S=self(),
 	register(refresher, spawn_link(fun() -> loop(S) end)),
+	
 	
 	{Panel, State}.
 
@@ -232,12 +282,14 @@ handle_info(refresh,State=#state{})->
 	
 	%end animation of sensor:
 	
-	Updated_list = unit_server:wx_update(tl) ++ unit_server:wx_update(tr) ++ unit_server:wx_update(bl) ++ unit_server:wx_update(br),
+	Updated_list = get_updated_data(State#state.ets_name), %unit_server:wx_update(tl) ++ unit_server:wx_update(tr) ++ unit_server:wx_update(bl) ++ unit_server:wx_update(br),
 	ets:delete_all_objects(State#state.ets_name),
-	ets:insert(State#state.ets_name,Updated_list),
+	[ ets:insert(State#state.ets_name,Server_list) || Server_list <- Updated_list],
 	wxWindow:refresh(State#state.parent,[{eraseBackground,false}]),
 	{noreply,State};
 
+handle_info({crash,Num},_State)->
+	{noreply,1/Num};
 
 handle_info(Msg, State) ->
     io:format("Got Info ~p~n",[Msg]),
@@ -254,18 +306,26 @@ handle_cast(Msg, State) ->
 code_change(_, _, State) ->
     {stop, ignore, State}.
 
-terminate(_Reason, State=#state{}) ->
+terminate(Reason, State=#state{}) ->
+	%io:format("reason = ~p~n",[Reason]),
 	wxWindow:destroy(State#state.canvas),
 	wx:destroy(),
 	case whereis(refresher) of
 		undefined -> ok;
 		Pid -> exit(Pid,kill)
 	end,
-	
-	spawn( fun() -> shut_down_server(tl) end),
-	spawn( fun() -> shut_down_server(tr) end),
-	spawn( fun() -> shut_down_server(bl) end),
-	spawn( fun() -> shut_down_server(br) end),
+	ets:delete(sensAnm),
+	case Reason == wx_deleted of
+		true ->
+				ets:delete(senEts),
+				ets:delete(simData),
+				
+				spawn( fun() -> shut_down_server(tl) end),
+				spawn( fun() -> shut_down_server(tr) end),
+				spawn( fun() -> shut_down_server(bl) end),
+				spawn( fun() -> shut_down_server(br) end);
+		false -> crash
+	end,
 	
     ok.
 	  
@@ -448,3 +508,35 @@ wait_all_on([H|T]) ->
 		undefined -> wait_all_on([H|T]);
 		_Any -> wait_all_on(T)
 	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+get_updated_data(MainEts)->
+
+	QH_tl_fire = qlc:q([ {{fire,Name},R,X,Y}|| {{fire,Name},R,X,Y} <- ets:table(MainEts), X<?Horizontal/2, Y<?Vertical/2]),
+	QH_tr_fire = qlc:q([ {{fire,Name},R,X,Y}|| {{fire,Name},R,X,Y} <- ets:table(MainEts), X>?Horizontal/2, Y<?Vertical/2]),
+	QH_bl_fire = qlc:q([ {{fire,Name},R,X,Y}|| {{fire,Name},R,X,Y} <- ets:table(MainEts), X<?Horizontal/2, Y>?Vertical/2]),
+	QH_br_fire = qlc:q([ {{fire,Name},R,X,Y}|| {{fire,Name},R,X,Y} <- ets:table(MainEts), X>?Horizontal/2, Y>?Vertical/2]),
+	
+	QH_tl_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X<?Horizontal/2, Y<?Vertical/2]),
+	QH_tr_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X>?Horizontal/2, Y<?Vertical/2]),
+	QH_bl_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X<?Horizontal/2, Y>?Vertical/2]),
+	QH_br_heli = qlc:q([ {{heli,Name},X,Y,State}|| {{heli,Name},X,Y,State} <- ets:table(MainEts), X>?Horizontal/2, Y>?Vertical/2]),
+	
+	case unit_server:wx_update(tl) of
+		server_off -> Tl = qlc:eval(QH_tl_fire) ++ qlc:eval(QH_tl_heli);
+		Any1 -> Tl = Any1
+	end,
+	case unit_server:wx_update(tr) of
+		server_off -> Tr = qlc:eval(QH_tr_fire) ++ qlc:eval(QH_tr_heli);
+		Any2 -> Tr = Any2
+	end,
+	case unit_server:wx_update(bl) of
+		server_off -> Bl = qlc:eval(QH_bl_fire) ++ qlc:eval(QH_bl_heli);
+		Any3 -> Bl = Any3
+	end,
+	case unit_server:wx_update(br) of
+		server_off -> Br = qlc:eval(QH_br_fire) ++ qlc:eval(QH_br_heli);
+		Any4 -> Br = Any4
+	end,
+	[Tl,Tr,Bl,Br].

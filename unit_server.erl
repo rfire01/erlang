@@ -1,11 +1,4 @@
-%%====================================================================
-%%
-%% @author Juanse Perez Herrero <juanseph@gmail.com> [http://bytefilia.com]
-%% @copyright CC Attribution - 2013
-%%
-%% A sample otp gen_server template
-%%
-%%====================================================================
+
 -module(unit_server).
 
 -include_lib("stdlib/include/qlc.hrl").
@@ -15,7 +8,8 @@
 % interface calls
 -export([start/1,create/2,update/3,pass_server_alert/2,heli_request/3,heli_request/5,
 		 give_heli/3,choose_heli/3,heli_done/2,fire_check/2,fire_check/4,
-		 wx_update/1,start_sim/1,change_screen/5,transfer_heli/4]).
+		 wx_update/1,start_sim/1,change_screen/5,transfer_heli/4,
+		 crash/1,crash_recover/2]).
     
 % gen_server callbacks
 -export([init/1,handle_call/3,handle_cast/2,
@@ -68,7 +62,7 @@ fire_check(GenName,Name,X,Y) ->
 	gen_server:cast({global, GenName}, {server_fire_check,Name,X,Y}).
    
 wx_update(GenName) ->
-  gen_server:call({global,GenName},{wx_request},infinity).
+	try gen_server:call({global,GenName},{wx_request},infinity) catch _Error:_Reason -> server_off end.
   
 change_screen(GenName,NewServer,UnitInfo,UnitState,UnitStateData) -> 
     gen_server:cast({global, GenName}, {change_screen,NewServer,UnitInfo,UnitState,UnitStateData}).
@@ -77,18 +71,49 @@ transfer_heli(GenName,UnitInfo,UnitState,UnitStateData) ->
 	%[Name,_,_,_] = UnitInfo,
 	%io:format("add heli ~p request to server ~p~n",[Name,GenName]),
     gen_server:cast({global, GenName}, {transfer_heli,UnitInfo,UnitState,UnitStateData}).
+	
+crash(GenName) ->
+	gen_server:cast({global, GenName}, {crash,0}).
+	
+crash_recover(GenName,Data) ->
+	gen_server:start({global, GenName}, ?MODULE, [crash,Data], []).
   
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
 init([Name]) ->
     io:format("starting local_gen: ~p~n",[Name]),
-	Ets = ets:new(general_info,[set]),
+	
+	MonName = list_to_atom(atom_to_list(Name) ++ "mon"),
+	loc_monitor:start(MonName,Name),
+	loc_monitor:add_mon(MonName,global:whereis_name(Name)),
+	put(mon_name,MonName),
+	MonPid = global:whereis_name(MonName),
+	
+	Ets = ets:new(general_info,[set,{heir,MonPid , {server,Name}}]),
 	put(ets_id,Ets),
 	ets:insert(Ets,{myInfo,Name}),
-	Sen_fire = ets:new(sen_fire,[bag]),
+	Sen_fire = ets:new(sen_fire,[bag,public]),
 	put(sen_fire_id,Sen_fire),
 	%io:format("######end of init gen server~n",[]),
+    {ok, initialized};
+	
+init([crash,Data]) ->
+
+	Ets=ets:new(general_info,[set]),
+	put(ets_id,Ets),
+	ets:insert(Ets,Data),
+	[{_,Name}] = ets:lookup(Ets,myInfo),
+	
+	MonName = list_to_atom(atom_to_list(Name) ++ "mon"),
+	MonPid = global:whereis_name(MonName),
+	
+	ets:setopts(Ets,{heir,MonPid , {server,Name}}),
+	loc_monitor:add_mon(MonName,global:whereis_name(Name)),
+
+	Sen_fire = ets:new(sen_fire,[bag,public]),
+	put(sen_fire_id,Sen_fire),
+	
     {ok, initialized}.
 
 %% Synchronous, possible return values  
@@ -151,8 +176,8 @@ handle_cast({create,DataList}, State) ->
 	Ets = get(ets_id),
 	[{_,MyName}] = ets:lookup(Ets,myInfo),
 	
-	QH2 = qlc:q([Name || {{_,Name},_,_,_} <- ets:table(Ets)]),
-	[ io:format("unit ~p is ~p~n",[TName,global:whereis_name(TName)]) || TName <- qlc:eval(QH2)],
+	%QH2 = qlc:q([Name || {{_,Name},_,_,_} <- ets:table(Ets)]),
+	%[ io:format("unit ~p is ~p~n",[TName,global:whereis_name(TName)]) || TName <- qlc:eval(QH2)],
 	
 	%io:format("stoping all old fsms ~n"),
 	ObjList = ets:tab2list(Ets),
@@ -178,6 +203,12 @@ handle_cast({create,DataList}, State) ->
 	%io:format("starting sensors ~n"),
 	SenList = ets:match(Ets,{{sensor,'$1'},'$2','$3','$4'}),
 	[sensor:start(Name,MyName) || [Name,_,_,_] <- SenList],
+	
+	MonName = get(mon_name),
+	[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_,_] <- SenList],
+	[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_,_] <- FireList],
+	[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_] <- HeliList],
+	
     {noreply, State};
 	
 handle_cast({start_sim}, State) ->
@@ -293,15 +324,22 @@ handle_cast({give_heli,Key,Val}, State) ->
 	{noreply, State};
 	
 handle_cast({choose_heli,Key,{R,X,Y}}, State) ->
+	Ets = get(ets_id),
+	[{_,Name}] = ets:lookup(Ets,myInfo),
 	Sen_fire = get(sen_fire_id),
 	ets:insert(Sen_fire,{{Key,done},done}),
-	HeliList = ets:lookup(Sen_fire,Key),
+	case ets:member(Sen_fire,Key) of
+		true -> HeliList = ets:lookup(Sen_fire,Key);
+		false -> HeliList=[]
+	end,
 	%Ets = get(ets_id),
 	%[{_,MyName}] = ets:lookup(Ets,myInfo),
 	%io:format("heli list = ~p, Key = ~p in server ~p~n",[HeliList,Key,MyName]),
 	case servers_closest_heli(HeliList) of
 		{ChoosenHeli,OtherHeli} -> [ unit_server:heli_done(HeliServer,Heli) || {Heli,HeliServer} <- OtherHeli],
-									heli:move_dst(ChoosenHeli,X+R,Y,{R,X,Y,0});
+									heli:move_dst(ChoosenHeli,X+R,Y,{R,X,Y,0}),
+									%wait 10 second and allow another heli request from sensor-fire pair
+									spawn(fun() -> timer:sleep(10000), case global:whereis_name(Name) == undefined of false -> ets:delete(Sen_fire,Key); true-> do_nothing end end);
 		no_heli -> do_nothing
 	end,
 	{noreply, State};
@@ -335,6 +373,8 @@ handle_cast({transfer_heli,UnitInfo,UnitState,UnitStateData}, State) ->
 	%io:format("recovering heli ~p at ~p~n",[Name,MyName]),
 	wait_done([Name]),
 	heli:recover(Name,MyName,X,Y,UnitState,UnitStateData),
+	MonName = get(mon_name),
+	loc_monitor:add_mon(MonName,global:whereis_name(Name)),
 	%io:format("result of tranfer of heli ~p to server ~p, gave ~p~n",[Name,MyName,Res]),
 	
 	{noreply, State};
@@ -376,7 +416,10 @@ handle_cast({server_fire_check,HeliName,HX,HY},  State) ->
 	
 	{noreply, State};
 
-%% generic async handler
+handle_cast({crash,Num}, _State) ->
+    {noreply, 1/Num};
+	
+	
 handle_cast(Message, State) ->
     io:format("Generic cast handler: '~p' while in '~p'~n",[Message, State]),
     {noreply, State}.
@@ -392,16 +435,27 @@ handle_info(_Message, _Server) ->
 
 %% Server termination
 terminate(Reason, _Server) ->
-	Ets = get(ets_id),
-	QH = qlc:q([ Name	|| {{_,Name},_,_,_} <- ets:table(Ets), global:whereis_name(Name) /= undefined]),
-	%io:format("qlc = ~p~n",[qlc:eval(QH)]),
-	[gen_fsm:stop({global,Name}) || Name <- qlc:eval(QH)],
-	%ObjList = ets:tab2list(Ets),
-	%[gen_fsm:send_all_state_event({global,H},stop) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
-	%timer:sleep(2000),
-	wait_done(qlc:eval(QH)),
-	[{_,Name}] = ets:lookup(Ets,myInfo),
-    io:format("Generic termination handler: '~p' '~p' '~p'~n",[Reason, _Server,Name]),
+
+	case Reason == normal of
+		true ->
+				MonName = get(mon_name),
+				loc_monitor:stop(MonName),
+				
+				Ets = get(ets_id),
+				QH = qlc:q([ Name	|| {{_,Name},_,_,_} <- ets:table(Ets), global:whereis_name(Name) /= undefined]),
+				%io:format("qlc = ~p~n",[qlc:eval(QH)]),
+				[gen_fsm:stop({global,Name}) || Name <- qlc:eval(QH)],
+				%ObjList = ets:tab2list(Ets),
+				%[gen_fsm:send_all_state_event({global,H},stop) || {{_,H},_,_,_} <- ObjList, global:whereis_name(H) /=undefined],
+				%timer:sleep(2000),
+				wait_done(qlc:eval(QH)),
+				[{_,Name}] = ets:lookup(Ets,myInfo),
+				io:format("Generic termination handler: '~p' '~p' '~p'~n",[Reason, _Server,Name]);
+		false -> Sen_Fire = get(sen_fire_id),
+				 QH = qlc:q([Data || {{Sen,Fire},Data} <- ets:table(Sen_Fire), ets:member(Sen_Fire,{{Sen,Fire},done}) == false]),
+				 FreeList = qlc:eval(QH),
+				 [ unit_server:heli_done(ServerName,HeliName) || {HeliName, _, ServerName} <- FreeList]
+	end,
 	ok.
 
 

@@ -63,7 +63,11 @@ merge(Name) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Name,ServerName,StartRadius,X,Y]) ->
-	Ets = ets:new(firedata,[set]),
+
+	MonName = list_to_atom(atom_to_list(ServerName) ++ "mon"),
+	MonPid = global:whereis_name(MonName),
+
+	Ets = ets:new(firedata,[set,{heir,MonPid , {fire,Name}}]),
 	put(ets_id,Ets),
 	ets:insert(Ets,{radius,StartRadius}),
 	ets:insert(Ets,{x,X}),
@@ -161,7 +165,8 @@ idle({decrease},_From,State) ->
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("new Radius = ~p~n",[NewRad]),
 	case NewRad == 0 of
-		true -> {reply, {fire_dead,NewRad}, fire_out, State};
+		true -> gen_fsm:send_all_state_event({global,MyName},stop),
+				{reply, {fire_dead,NewRad}, fire_out, State};
 		false -> {reply, {fire_alive,NewRad}, idle, State, ?FIRE_REFRESH_SPEED}
 	end; 
  
@@ -185,8 +190,9 @@ fire_out(_Event, _From, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
-handle_event(_Event, StateName, State) ->
-    {next_state, StateName, State}.
+handle_event(_Event, _StateName, State) ->
+	{stop, normal, State}.
+    %{next_state, StateName, State}.
  
 %%--------------------------------------------------------------------
 %% @private

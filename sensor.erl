@@ -11,7 +11,7 @@
 -export([init/1,idle/2,idle/3,working/2,working/3, handle_event/3,
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
  
--export([start_sim/1,new_alert/2]).
+-export([start_sim/1,new_alert/2,crash/1,crash_recover/2]).
 -include("config.hrl").
 %%-define(SERVER, ?MODULE).
  
@@ -39,6 +39,12 @@ start_sim(Name) ->
 new_alert(Name,FireName) ->
 	%io:format("sending alert to sensor ~p~n",[Name]),
   gen_fsm:send_event({global, Name}, {new_alert,FireName}).
+  
+crash(Name) ->
+	gen_fsm:send_event({global, Name}, {crash,0}).
+	
+crash_recover(Name,Data) ->
+    gen_fsm:start({global, Name}, ?MODULE, [crash,Data], []).
  
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -57,8 +63,29 @@ new_alert(Name,FireName) ->
 %%                     {stop, StopReason}
 %% @end
 %%--------------------------------------------------------------------
-init([SensorName,ServerName]) ->
+init([crash,Data]) ->
 	Ets=ets:new(active_fire,[set]),
+	put(ets_id,Ets),
+	ets:insert(Ets,Data),
+	[{_,SensorName}] = ets:lookup(Ets,myName),
+	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	
+	MonName = list_to_atom(atom_to_list(ServerName) ++ "mon"),
+	MonPid = global:whereis_name(MonName),
+	
+	ets:setopts(Ets,{heir,MonPid , {sensor,SensorName}}),
+	loc_monitor:add_mon(MonName,global:whereis_name(SensorName)),
+	
+	sensor:start_sim(SensorName),
+	
+    {ok, idle, {}};
+
+init([SensorName,ServerName]) ->
+	
+	MonName = list_to_atom(atom_to_list(ServerName) ++ "mon"),
+	MonPid = global:whereis_name(MonName),
+	
+	Ets=ets:new(active_fire,[set,{heir,MonPid , {sensor,SensorName}}]),
 	put(ets_id,Ets),
 	ets:insert(Ets,{serverName,ServerName}),
 	ets:insert(Ets,{myName,SensorName}),
@@ -86,6 +113,9 @@ idle({start_sim}, State) ->
 	AlertPid = spawn(fun() -> loop(Self) end), 
 	put(alerting,AlertPid),
 	{next_state, working, State};
+	
+idle({crash,Num}, _State) ->
+	{next_state, working, 1/Num};
 
 idle(_Event, State) ->
   {next_state, idle, State}.
@@ -95,6 +125,9 @@ working({new_alert,FireName}, State) ->
 	%io:format("alert receive for: ~p~n",[FireName]),
 	ets:insert(Ets,{FireName,on}),
 	{next_state, working, State};
+	
+working({crash,Num}, _State) ->
+	{next_state, working, 1/Num};
 	
 working(_Event, State) ->
   {next_state, working, State}.

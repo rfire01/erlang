@@ -37,7 +37,7 @@ start() ->
 	Server = wx:new(),
     wx_object:start(?MODULE, Server, []).
 	
-crash() -> Pid = whereis(wx_server),
+crash() -> Pid = self(),%whereis(wx_server),
 		   Pid ! {crash,0}.
 		   
 crash_recover(MainData,SenData) -> 
@@ -49,7 +49,7 @@ init(Server) ->
         wx:batch(fun() -> do_init(Server) end).
 
 do_init([Server,MainData,SenData]) ->
-	register(wx_server,self()),
+	%register(wx_server,self()), io:format("done! 1~n"),
 	
 	Frame = wxFrame:new(Server, -1, "wx test sim", [{size,{?Horizontal, ?Vertical}}]),		%%create frame for the simulator
 	Panel  = wxPanel:new(Frame,[{style, ?wxFULL_REPAINT_ON_RESIZE}]),						%%create panel from the frame
@@ -58,7 +58,7 @@ do_init([Server,MainData,SenData]) ->
 	wxButton:new(Panel, 10, [{label, "&Start Game"},{pos,{3,13}},{size,{95,30}}]),			%%start game button
 	Rand=wxButton:new(Panel, 11, [{label, "&Randomize"},{pos,{105,13}},{size,{95,30}}]),		%%randomize game button
 	
-	wxWindow:connect(Panel, command_button_clicked),
+	wxWindow:connect(Panel, command_button_clicked), 
 	
 	Map1 = wxImage:new("pic/forest_3.jpg"),														%%background image
 	Map_1 = wxImage:scale(Map1, ?Horizontal,?Vertical),										%%scale image
@@ -74,27 +74,20 @@ do_init([Server,MainData,SenData]) ->
 	
 	MonPid = global:whereis_name(wxMon),
 	
-	io:format("done~n"),
 	ets:new(simData,[set,named_table,{heir,MonPid,{wxServer,main}}]),
-	io:format("done2~n"),
 	ets:new(senEts,[set,named_table,{heir,MonPid,{wxServer,sen}}]),
 	
-	io:format("done3~n"),
 	[ ets:insert(simData,Data) || Data <- MainData],
-	io:format("done4~n"),
 	[ ets:insert(senEts,Data) || Data <- SenData],
 	
 	loc_monitor:add_mon(wxMon,self()),
 	
-	io:format("done5~n"),
 	ets:new(sensAnm,[set,named_table]),
 	
 	ets:insert(sensAnm,{picNum,1}),
 	
-	io:format("done6~n"),
 	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,self=self()},
 	
-	io:format("done7~n"),
 	OnPaint=fun(_Evt,_Obj)->%%function to do when paint event called
 					
 					Paint=wxBufferedPaintDC:new(Panel),
@@ -108,13 +101,12 @@ do_init([Server,MainData,SenData]) ->
 	
 	%io:format("########### ~p ##############3 ~n",[global:whereis_name(full)]),
 	S=self(),
-	io:format("done8~n"),
 	register(refresher, spawn_link(fun() -> loop(S) end)),
 	
 	{Panel, State};
 		
 do_init(Server) ->
-	register(wx_server,self()),
+	%register(wx_server,self()),
 	%%----------- init local servers (for each part of screen)
 	case connect_to_nodes([?TLSERVER_NODE,?TRSERVER_NODE,?BLSERVER_NODE,?BRSERVER_NODE]) of
 		ok -> case global:whereis_name(tl) == undefined of
@@ -174,9 +166,6 @@ do_init(Server) ->
 	loc_monitor:add_mon(wxMon,self()),
 	
 	ets:insert(sensAnm,{picNum,1}),
-	%ets:insert(simData,{heli,[]}),
-	%ets:insert(simData,{fire,[]}),
-	%ets:insert(simData,{sens,[]}),
 	
 	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,self=self()},
 	
@@ -204,7 +193,7 @@ do_init(Server) ->
 
 %when randomize button clicked, randomizing all units places:
 handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
-	io:format("randomizing units coordinates ~p~n",[Ev]),
+	io:format("randomizing units coordinates ~n"),
 	
 	ets:delete_all_objects(State#state.ets_name),
 	ets:delete_all_objects(State#state.sen_ets_name),
@@ -254,7 +243,7 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
 	
 %when start button clicked, starting simulation:
 handle_event(Ev=#wx{id=10,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
-	io:format("starting simulation ~p~n",[Ev]),
+	io:format("starting simulation ~n"),
 	
 	wxButton:disable(State#state.random_but),
 	unit_server:start_sim(tl),
@@ -320,10 +309,7 @@ terminate(Reason, State=#state{}) ->
 				ets:delete(senEts),
 				ets:delete(simData),
 				
-				spawn( fun() -> shut_down_server(tl) end),
-				spawn( fun() -> shut_down_server(tr) end),
-				spawn( fun() -> shut_down_server(bl) end),
-				spawn( fun() -> shut_down_server(br) end);
+				[shut_down_server(Server) || Server <- [tl,tr,bl,br]];
 		false -> crash
 	end,
 	
@@ -386,11 +372,13 @@ randUnit(sensor,Amount,EtsName) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 add_units_to_screen(EtsName,Paint,SenEts) ->
-		
+	
+	[{_,PicNum}] = ets:lookup(sensAnm,picNum),
+	SensImgName="sensorPics/sensor" ++ integer_to_list(PicNum) ++ ".png",
 		
 	QH_fire = qlc:q([[R,X,Y] || {{fire,_},R,X,Y} <- ets:table(EtsName)]),
 	QH_heli = qlc:q([[X,Y] || {{heli,_},X,Y,_} <- ets:table(EtsName)]),
-	QH_sensor = qlc:q([[R,X,Y,SensName] || {{sensor,SensName},R,X,Y} <- ets:table(SenEts)]),
+	QH_sensor = qlc:q([[R,X,Y,SensName,SensImgName] || {{sensor,SensName},R,X,Y} <- ets:table(SenEts)]),
 
 	[ add_unit_to_screen(sensor,Unit,Paint) || Unit <- qlc:eval(QH_sensor)],
 	[ add_unit_to_screen(fire,Unit,Paint) || Unit <- qlc:eval(QH_fire)],
@@ -423,22 +411,12 @@ add_unit_to_screen(fire,[R,X,Y],Paint) ->
 		false -> do_nothing
 	end;
 	
-add_unit_to_screen(sensor,[R,X,Y,_SensName],Paint) ->
- 
-	%ets:tab2list(),
+add_unit_to_screen(sensor,[R,X,Y,_SensName,ImagePath],Paint) ->
+
 	
-	%% ---------------yoed code
-%	[{_,PicName}] = ets:lookup(sensAnm,SensName),
-%	 case PicName == 4 of
-%			  true-> PicName2=1;
-%			  false-> PicName2=PicName+1
-%	 end,
-%	SensImgName="pic/sensor/se_" ++ integer_to_list(PicName) ++ ".png",
-	%% ---------------end yoed code
-	
-	[{_,PicNum}] = ets:lookup(sensAnm,picNum),
-	SensImgName="sensorPics/sensor" ++ integer_to_list(PicNum) ++ ".png",
-	Image1 = wxImage:new(SensImgName),
+	%[{_,PicNum}] = ets:lookup(sensAnm,picNum),
+	%SensImgName="sensorPics/sensor" ++ integer_to_list(PicNum) ++ ".png",
+	Image1 = wxImage:new(ImagePath),
 	Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
 	%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
 	Bmp = wxBitmap:new(Image2),
@@ -465,7 +443,7 @@ connect_to_nodes([Node|Rest]) -> case net_adm:ping(Node) of
 shut_down_server(Name) ->
 	case global:whereis_name(Name) of
 		undefined -> ok;
-		_any -> gen_server:stop({global,Name})
+		_any -> unit_server:stop(Name)
 	end.
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -5,7 +5,7 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/2]).
+-export([start/2,stop/1]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,working/2,working/3, handle_event/3,
@@ -45,6 +45,9 @@ crash(Name) ->
 	
 crash_recover(Name,Data) ->
     gen_fsm:start({global, Name}, ?MODULE, [crash,Data], []).
+	
+stop(Name) ->
+	gen_fsm:send_all_state_event({global, Name}, {stop}).  
  
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -172,6 +175,9 @@ working(_Event, _From, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
+handle_event({stop}, _StateName, State) ->
+	{stop, normal, State};
+
 handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
  

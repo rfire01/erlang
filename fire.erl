@@ -3,7 +3,7 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/5]).
+-export([start/5,stop/1]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,fire_out/2,fire_out/3, handle_event/3,
@@ -38,6 +38,9 @@ extinguish_fire(Name) ->
   
 merge(Name) ->
   gen_fsm:send_event({global, Name}, {merge}).
+  
+stop(Name) ->
+	gen_fsm:send_all_state_event({global, Name}, {stop}).  
   
 %%update_sens(Sens,Command) ->
 %%  gen_fsm:send_event({global, Name}, {update_sensor,Sens,Command}).
@@ -74,6 +77,8 @@ init([Name,ServerName,StartRadius,X,Y]) ->
 	ets:insert(Ets,{y,Y}),
 	ets:insert(Ets,{myName,Name}),
 	ets:insert(Ets,{serverName,ServerName}),
+	
+	create_stat(StartRadius),
 	%io:format("started fire with radius = ~p~n",[StartRadius]),
 	rand_idle_diff(),
     {ok, idle, {}}.
@@ -112,6 +117,7 @@ idle(timeout, State) ->
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("Fire++ ~p, new Radius = ~p~n",[MyName,NewRad]),
+	update_stat(max_rad,NewRad),
 	{next_state, idle, State,?FIRE_REFRESH_SPEED};
 	
 	
@@ -121,14 +127,20 @@ idle({merge}, State) ->
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,fire,[MyName,0]),
 	io:format("merge ~p~n",[MyName]),
-	{next_state, fire_out, State};
+	update_stat(time,erlang:timestamp()),
+	update_stat(reason,"fire merged"),
+	%print_stat(),
+	{next_state, fire_out, State,0};
+	%{stop, normal, State,0};
 
 idle(_Event, State) ->
   {next_state, idle, State}.
   
 fire_out(_Event, State) ->
 	%io:format("no fire~n"),
-	{next_state, fire_out, State}.
+	print_stat(),
+	%{next_state, fire_out, State}.
+	{stop, normal, State}.
  
 %%--------------------------------------------------------------------
 %% @private
@@ -165,8 +177,9 @@ idle({decrease},_From,State) ->
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("new Radius = ~p~n",[NewRad]),
 	case NewRad == 0 of
-		true -> gen_fsm:send_all_state_event({global,MyName},stop),
-				{reply, {fire_dead,NewRad}, fire_out, State};
+		true -> update_stat(time,erlang:timestamp()),
+				update_stat(reason,"fire extinguished"),
+				{reply, {fire_dead,NewRad}, fire_out, State,0};
 		false -> {reply, {fire_alive,NewRad}, idle, State, ?FIRE_REFRESH_SPEED}
 	end; 
  
@@ -190,6 +203,9 @@ fire_out(_Event, _From, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
+handle_event({stop}, _StateName, State) ->
+	{stop, normal, State};
+
 handle_event(_Event, _StateName, State) ->
 	{stop, normal, State}.
     %{next_state, StateName, State}.
@@ -270,3 +286,39 @@ rand_idle_diff()->
   random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+create_stat(StartRad)->
+	Stat = ets:new(stat,[set]),
+	put(stat,Stat),
+	ets:insert(Stat,{start_time,erlang:timestamp()}),
+	ets:insert(Stat,{max_rad,StartRad}).
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+update_stat(Type,Value) ->
+	Stat = get(stat),
+	case Type of
+		time -> [{_,Now}] = ets:lookup(Stat,start_time),
+				ets:insert(Stat,{final_time,timer:now_diff(Value,Now)});
+		max_rad -> ets:insert(Stat,{max_rad,Value});
+		reason -> ets:insert(Stat,{reason,Value})
+	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+print_stat()->
+	Ets = get(ets_id),
+	[{_,X}] = ets:lookup(Ets,x),
+	[{_,Y}] = ets:lookup(Ets,y),
+	[{_,MyName}] = ets:lookup(Ets,myName),
+	io:format("~p at coordinates (~p,~p) statistics:~n",[MyName,X,Y]),
+	Stat=get(stat),
+	[ chooseStat(CurrentStat) || CurrentStat<-ets:tab2list(Stat)].
+	
+chooseStat({Type,Val}) ->
+	case Type of
+		max_rad -> io:format("----max radius: ~p~n",[Val]);
+		final_time -> io:format("----time until fire extinguished: ~p~n",[Val/1000000]);
+		reason -> io:format("----reason: ~p~n",[Val]);
+		_Any -> do_nothing
+	end.

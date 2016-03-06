@@ -115,14 +115,14 @@ get_ets(Ets,Pid,Wx) ->
 					[{Pid,Id,Data}] -> TableId=Id, HeirData=Data;
 					[] -> receive
 							{'ETS-TRANSFER', Id, Pid, Data} ->	TableId=Id, HeirData=Data
-						  after 3000 -> HeirData = ignore,TableId=0,io:format("no ets found~n")
+						  after 3000 -> HeirData = ignore,TableId=0%,io:format("no ets found~n")
 						  end
 				end;
 		true -> case ets:lookup(Ets,{Pid,2}) of
 					[{{Pid,2},Id,Data}] -> TableId=Id, HeirData=Data;
 					[] -> receive
 							{'ETS-TRANSFER', Id, Pid, Data} ->	TableId=Id, HeirData=Data
-						  after 3000 -> HeirData = ignore,TableId=0,io:format("no ets found~n")
+						  after 3000 -> HeirData = ignore,TableId=0%,io:format("no ets found~n")
 						  end
 				end
 	end,

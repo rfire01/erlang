@@ -3,11 +3,11 @@
 -behaviour(gen_fsm).
  
 %% API
--export([start/4]).
+-export([start/4,stop/1]).
  
 %% gen_fsm callbacks
 -export([init/1,idle/2,idle/3,move_destination/2,move_destination/3, handle_event/3,
-		search_circle/2, search_circle/3,extinguish/2,recover/6,found_fire/2,
+		search_circle/2, search_circle/3,extinguish/2,recover/7,found_fire/2,
      handle_sync_event/4, handle_info/3, terminate/3, code_change/4,
 	 crash/1,crash_recover/2]).
  
@@ -30,6 +30,8 @@
 %%% API
 %%%===================================================================
  
+ -export([statistics/1]).
+ 
 %%--------------------------------------------------------------------
 %% @doc
 %% Creates a gen_fsm process which calls Module:init/1 to
@@ -51,8 +53,8 @@ move_dst(Name,X,Y,Objective) ->
 move_circle(Name,R) ->
   gen_fsm:send_event({global,Name}, {circle, R}).
   
-recover(Name,ServerName,X,Y,State,Data) ->
-  gen_fsm:start({global, Name}, ?MODULE, [Name,ServerName,X,Y,State,Data], []).
+recover(Name,ServerName,X,Y,State,Data,Stat) ->
+  gen_fsm:start({global, Name}, ?MODULE, [Name,ServerName,X,Y,State,Data,Stat], []).
   
 found_fire(Name,[NF,RF,XF,YF]) -> 
 	gen_fsm:send_event({global,Name}, {found_fire, [NF,RF,XF,YF]}).
@@ -62,6 +64,12 @@ crash(Name) ->
 	
 crash_recover(Name,Data) ->
     gen_fsm:start({global, Name}, ?MODULE, [crash,Data], []).
+	
+stop(Name) ->
+	gen_fsm:send_all_state_event({global, Name}, {stop}).  
+	
+statistics(Name) ->
+	gen_fsm:send_all_state_event({global, Name}, {stat}).  
  
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -92,9 +100,12 @@ init([Name,ServerName,X,Y]) ->
     ets:insert(Ets,{y,Y}),
 	ets:insert(Ets,{myName,Name}),
     ets:insert(Ets,{serverName,ServerName}),
+	
+	create_stat(),
+	
     {ok, idle, {}};
 	
-init([Name,ServerName,X,Y,State,Data]) ->
+init([Name,ServerName,X,Y,State,Data,Stat]) ->
 	MonName = list_to_atom(atom_to_list(ServerName) ++ "mon"),
 	MonPid = global:whereis_name(MonName),
 
@@ -106,6 +117,9 @@ init([Name,ServerName,X,Y,State,Data]) ->
     ets:insert(Ets,{y,Y}),
 	ets:insert(Ets,{myName,Name}),
     ets:insert(Ets,{serverName,ServerName}),
+	
+	create_stat(Stat),
+	
 	case State of
 		extinguish -> {ok, State, Data,?EXTINGUISH_SPEED};
 		_Any -> {ok, State, Data,?REFRESH_SPEED}
@@ -126,6 +140,8 @@ init([crash,Data]) ->
 	
 	heli:start_sim(Name),
 	unit_server:heli_done(ServerName,Name),
+	
+	create_stat(),
 	
     {ok, idle, {}}.
  
@@ -171,6 +187,8 @@ idle(timeout, {DifX,DifY}) ->
   [{_,ServerName}] = ets:lookup(Ets,serverName),
   [{_,CurrentX}] = ets:lookup(Ets,x),
   [{_,CurrentY}] = ets:lookup(Ets,y),
+  
+  update_stat(travel,math:sqrt(DifX*DifX+DifY*DifY)),
  
   case check_screen(CurrentX,CurrentY) of
 	ServerName -> unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
@@ -190,6 +208,9 @@ idle({move_dst,DstX,DstY,Objective},_State) ->
 	%io:format("(x,y) = (~p,~p) ; (dstx,dsty) = (~p,~p)~n",[CurrentX,CurrentY,DstX,DstY]),
 	Angle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
 	{DifX,DifY} = calc_destination_movement_diffs(Angle),
+	
+	update_stat(current_work_time,erlang:timestamp()),
+	
 	{next_state,move_destination,{DifX,DifY,DstX,DstY,Objective},?REFRESH_SPEED};
 	
 idle({circle,R},_State) ->
@@ -215,6 +236,7 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective}) ->
 	[{_,MyName}]   = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	
+	update_stat(travel,math:sqrt((TmpX-CurrentX)*(TmpX-CurrentX)+(TmpY-CurrentY)*(TmpY-CurrentY))),
 	
 	%unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	case check_screen(CurrentX,CurrentY) of
@@ -254,6 +276,8 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,SensorData}) ->
 	[{_,MyName}]   = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	
+	update_stat(travel,Angle*R),
+	
 	%unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
 	case check_screen(CurrentX,CurrentY) of
 		ServerName -> unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
@@ -264,6 +288,7 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,SensorData}) ->
 	unit_server:fire_check(ServerName,MyName),
 	case Angle > 6.29 of 
 		true -> %io:format("finished circle~n"),
+				update_stat(work_time,erlang:timestamp()),
 				{DifX,DifY} = rand_idle_diff(),
 				unit_server:heli_done(ServerName,MyName),
 				case Need_to_change_screen of 
@@ -294,36 +319,6 @@ search_circle({found_fire,[NF,RF,XF,YF]},{_R,_CX,_CY,_Angle,_DifAngle,SensorData
 		false -> {DifX,DifY} = calc_destination_movement_diffs(StartAngle),
 				 {next_state,extinguish,{straight,-1*DifX,-1*DifY,NF,XF,YF,StartAngle,SensorData},?EXTINGUISH_SPEED}
 	end;
-
-%	case unit_server:fire_check(ServerName,MyName) of
-%		false -> 
-%				case Angle > 6.29 of 
-%					true -> %io:format("finished circle~n"),
-%							{DifX,DifY} = rand_idle_diff(),
-%							unit_server:heli_done(ServerName,MyName),
-%							case Need_to_change_screen of 
-%								false -> {next_state,idle,{DifX,DifY},?REFRESH_SPEED};
-%								Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],idle,{DifX,DifY}),
-%										{stop,normal,{}}
-%							end;
-%					false -> case Need_to_change_screen of
-%								false -> {next_state,search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,SensorData},?REFRESH_SPEED};
-%								Serv -> unit_server:change_screen(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{R,CX,CY,Angle + DifAngle,DifAngle,SensorData}),
-%										{stop,normal,{}}
-%							 end
-%				end;
-%		    
-%		[NF,RF,XF,YF] -> %io:format("found fire [~p,~p,~p,~p]~n",[NF,RF,XF,YF]),
-%						StartAngle = calc_destination_angle(CurrentX,CurrentY,XF,YF),
-%						FrameX = RF * math:cos(StartAngle)+ XF,
-%						FrameY = RF * math:sin(StartAngle)+ YF,
-%						case check_frame(CurrentX,CurrentY,FrameX,FrameY) of
-%							true -> {next_state,extinguish,{circle,NF,RF,XF,YF,StartAngle,SensorData},?EXTINGUISH_SPEED};
-%							false -> {DifX,DifY} = calc_destination_movement_diffs(StartAngle),
-%									 {next_state,extinguish,{straight,-1*DifX,-1*DifY,NF,XF,YF,StartAngle,SensorData},?EXTINGUISH_SPEED}
-%						end;
-%		error_in_server -> {next_state,idle,{}}
-%	end;
 		
 
 	
@@ -337,6 +332,8 @@ extinguish(timeout,{circle,N,R,X,Y,Angle,SensorData}) ->
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	[{_,MyName}]   = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	
+	update_stat(travel,Angle*R),
 	
 	case check_screen(CurrentX,CurrentY) of
 		ServerName -> unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
@@ -362,6 +359,9 @@ extinguish(timeout,{circle,N,R,X,Y,Angle,SensorData}) ->
 					  {DstX,DstY} = {CR+CX,CY},
 					  NextAngle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
 					  {NextDifX,NextDifY} = calc_destination_movement_diffs(NextAngle),
+					  update_stat(fires,1),
+					  %update_stat(work_time,erlang:timestamp()),
+					  
 					  case Need_to_change_screen of
 						false -> {next_state,move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData},?REFRESH_SPEED};
 						Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData})
@@ -381,6 +381,8 @@ extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData}) ->
 	[{_,CurrentY}] = ets:lookup(Ets,y),
 	[{_,MyName}]   = ets:lookup(Ets,myName),
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
+	
+	update_stat(travel,math:sqrt(DifX*DifX+DifY*DifY)),
 	
 	case check_screen(CurrentX,CurrentY) of
 		ServerName -> unit_server:update(ServerName,heli,[MyName,CurrentX,CurrentY]),
@@ -412,6 +414,9 @@ extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData}) ->
 					  {DstX,DstY} = {CR+CX,CY},
 					  NextAngle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
 					  {NextDifX,NextDifY} = calc_destination_movement_diffs(NextAngle),
+					  update_stat(fires,1),
+					  %update_stat(work_time,erlang:timestamp()),
+					  
 					  case Need_to_change_screen of
 						false -> {next_state,move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData},?REFRESH_SPEED};
 						Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData})
@@ -471,6 +476,13 @@ search_circle(_Event, _From, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
+handle_event({stop}, _StateName, State) ->
+	{stop, normal, State};
+	
+handle_event({stat}, StateName, State) ->
+	print_stat(),
+	{next_state, StateName, State,?REFRESH_SPEED};
+
 handle_event({crash,Num}, StateName, _State) ->
     {next_state, StateName, 1/Num};
 
@@ -696,8 +708,61 @@ check_screen(X,Y) ->
 
 wait_for_server_recover(ServerName,Serv,Data,State,StateData) ->
 	case (global:whereis_name(ServerName) /= undefined) and (global:whereis_name(Serv) /= undefined) of
-		true -> unit_server:change_screen(ServerName,Serv,Data,State,StateData),
+		true -> Stat = get(stat),
+				unit_server:change_screen(ServerName,Serv,Data,State,StateData,ets:tab2list(Stat)),
 				{stop,normal,{}};
 		false -> timer:sleep(?REFRESH_SPEED),
 				 wait_for_server_recover(ServerName,Serv,Data,State,StateData)
+	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+create_stat()->
+	Stat = ets:new(stat,[set]),
+	put(stat,Stat),
+	ets:insert(Stat,{fires,0}),
+	ets:insert(Stat,{current_work_time,0}),
+	ets:insert(Stat,{work_time,0}),
+	ets:insert(Stat,{start_time,erlang:timestamp()}),
+	ets:insert(Stat,{travelled,0}).
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+create_stat(Data)->
+	Stat = ets:new(stat,[set]),
+	put(stat,Stat),
+	ets:insert(Stat,Data).
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+update_stat(Type,Value) ->
+	Stat = get(stat),
+	case Type of
+		travel -> [{_,Travel}] = ets:lookup(Stat,travelled),
+				  ets:insert(Stat,{travelled,Travel+Value});
+		fires-> [{_,Fire}] = ets:lookup(Stat,fires),
+				 ets:insert(Stat,{fires,Fire+1});
+		current_work_time -> ets:insert(Stat,{current_work_time,Value});
+		work_time -> [{_,Prev}] = ets:lookup(Stat,current_work_time),
+					 [{_,Work_time}] = ets:lookup(Stat,work_time),
+					 ets:insert(Stat,{work_time,Work_time+timer:now_diff(Value,Prev)})
+	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+print_stat()->
+	Ets = get(ets_id),
+	[{_,MyName}] = ets:lookup(Ets,myName),
+	io:format("~p statistics:~n",[MyName]),
+	Stat=get(stat),
+	[ chooseStat(CurrentStat) || CurrentStat<-ets:tab2list(Stat)].
+	
+chooseStat({Type,Val}) ->
+	Stat=get(stat),
+	case Type of
+		travelled -> io:format("----distance travelled: ~p [pixels]~n",[Val]);
+		fires -> io:format("----fire extinguished by this heli: ~p ~n",[Val]);
+		work_time -> [{_,Start}] = ets:lookup(Stat,start_time),
+					 io:format("----total work time: ~p ; % of time working: ~p~n",[Val/1000000,100*Val/timer:now_diff(erlang:timestamp(),Start)]);
+		_Any -> do_nothing
 	end.

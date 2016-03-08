@@ -40,7 +40,7 @@
 -define(Horizontal,1200).
 -define(Vertical,556).
 
--define(FireDefaultRadius, 30).
+-define(FireDefaultRadius, 20).
  
 -define(SensorRadius, 50).
 
@@ -49,10 +49,10 @@
 
 -define(WX_UPDATE_SPEED, 30).
 
--define(LARGE_SENSOR_SIZE,10).
--define(MEDIUM_SENSOR_SIZE,10).
--define(SMALL_SENSOR_SIZE,10).
+-define(LARGE_SENSOR_SIZE,60).
+-define(MEDIUM_SENSOR_SIZE,40).
+-define(SMALL_SENSOR_SIZE,15).
 
--define(LARGE_SENSOR_PRICE,10).
--define(MEDIUM_SENSOR_PRICE,10).
--define(SMALL_SENSOR_PRICE,10).
+-define(LARGE_SENSOR_PRICE,30).
+-define(MEDIUM_SENSOR_PRICE,20).
+-define(SMALL_SENSOR_PRICE,7.5).

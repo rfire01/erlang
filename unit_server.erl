@@ -148,7 +148,7 @@ handle_call({wx_request}, _From, State) ->
 				QH2 = qlc:q([1	|| {{heli,_},_,_,_} <- ets:table(Ets)]),
 				Current_heli_amount = erlang:length(qlc:eval(QH2)),
 				update_stat(heli_count,Current_heli_amount),
-				update_stat(message_count,erlang:timestamp())
+				update_stat(message_count,{0,erlang:timestamp()})
 	end,
 	
 	{reply,qlc:eval(QH),State};
@@ -219,6 +219,7 @@ handle_cast({start_sim}, State) ->
 	
 	Stat = get(stat),
 	ets:insert(Stat,{sim_started,true}),
+	io:format("~p~n",[ets:lookup(Stat,sim_started)]),
 	{noreply, State};
 	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
@@ -254,7 +255,7 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 				[{_,MyName}] = ets:lookup(Ets,myInfo),
 				[ unit_server:pass_server_alert(DstServer,[Name,RF,XF,YF]) || DstServer <- [tl,tr,bl,br], DstServer/=MyName]
 	end,
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};	
 	
 handle_cast({pass_alert,Fire_Data}, State) ->
@@ -266,7 +267,7 @@ handle_cast({pass_alert,Fire_Data}, State) ->
 		[] -> dont_care;
 		SensorList -> [ sensor:new_alert(Sen,Name) || Sen <- SensorList]%, io:format("sensor activated ~p~n",[SensorList])
 	end,
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply,State};
 	
 	
@@ -296,7 +297,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 				   spawn(fun() -> timer:sleep(1000), unit_server:choose_heli(MyName,{Sen_name,Fire_Name},{SR,SX,SY}) end)
 	end,
 	
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};	
 	
 handle_cast({server_heli_request,FromServer,Key,MinDist,{DstX,DstY}}, State) ->
@@ -309,7 +310,7 @@ handle_cast({server_heli_request,FromServer,Key,MinDist,{DstX,DstY}}, State) ->
 					ets:insert(Ets,{{heli,Name},X,Y,working}),
 					unit_server:give_heli(FromServer,Key,{Name,Dist,MyName})
 	end,
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};
 	
 handle_cast({give_heli,Key,Val}, State) ->
@@ -324,7 +325,7 @@ handle_cast({give_heli,Key,Val}, State) ->
 				unit_server:heli_done(Serv,Name)
 	end,
 	%io:format("heli added = ~p, key = ~p in server ~p~n",[Val,Key,MyName]),
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};
 	
 handle_cast({choose_heli,Key,{R,X,Y}}, State) ->
@@ -346,14 +347,14 @@ handle_cast({choose_heli,Key,{R,X,Y}}, State) ->
 									spawn(fun() -> timer:sleep(20000), case global:whereis_name(Name) == undefined of false -> ets:delete(Sen_fire,Key); true-> do_nothing end end);
 		no_heli -> do_nothing
 	end,
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};
 					
 handle_cast({heli_done,Name}, State) ->
 	Ets = get(ets_id),
 	%io:format("helicopter: ~p is free ~n",[Name]),
 	ets:update_element(Ets,{heli,Name},{4,not_working}),
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};
 	
 handle_cast({change_screen,NewServer,UnitInfo,UnitState,UnitStateData,Stat}, State) ->
@@ -369,7 +370,7 @@ handle_cast({change_screen,NewServer,UnitInfo,UnitState,UnitStateData,Stat}, Sta
 	
 	unit_server:transfer_heli(NewServer,[Name,X,Y,WorkState],UnitState,UnitStateData,Stat),
 	
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};
 	
 handle_cast({transfer_heli,UnitInfo,UnitState,UnitStateData,Stat}, State) ->
@@ -384,7 +385,7 @@ handle_cast({transfer_heli,UnitInfo,UnitState,UnitStateData,Stat}, State) ->
 	loc_monitor:add_mon(MonName,global:whereis_name(Name)),
 	%io:format("result of tranfer of heli ~p to server ~p, gave ~p~n",[Name,MyName,Res]),
 	
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};
 	
 handle_cast({heli_fire_check,HeliName}, State) -> 
@@ -404,7 +405,7 @@ handle_cast({heli_fire_check,HeliName}, State) ->
 		false -> heli:found_fire(HeliName,Replay)
 	end,
 	
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};
 	
 handle_cast({server_fire_check,HeliName,HX,HY},  State) -> 
@@ -422,7 +423,7 @@ handle_cast({server_fire_check,HeliName,HX,HY},  State) ->
 		false -> heli:found_fire(HeliName,Replay)
 	end,
 	
-	update_stat(message_count,erlang:timestamp()),
+	update_stat(message_count,{1,erlang:timestamp()}),
 	{noreply, State};
 
 handle_cast({crash,Num}, _State) ->
@@ -564,7 +565,7 @@ terminate_unit({Type,Name}) ->
 create_stat()->
 	Stat = ets:new(stat,[set]),
 	put(stat,Stat),
-	ets:insert(Stat,{last_update_time,erlang:timestamp()}),
+	ets:insert(Stat,{start_sim_time,erlang:timestamp()}),
 	ets:insert(Stat,{message_count,{0,0}}),
 	ets:insert(Stat,{heli_count,{0,0,0}}).
 	
@@ -576,15 +577,15 @@ update_stat(Type,Value) ->
 	case Type of
 		heli_count -> [{_,{Total,Count,_}}] = ets:lookup(Stat,heli_count),
 					  ets:insert(Stat,{heli_count,{Total+Value,Count+1,Value}});
-		message_count -> [{_,{Total,Seconds}}] = ets:lookup(Stat,message_count),
+		start_sim_time -> ets:insert(Stat,{start_sim_time,erlang:timestamp()});
+		message_count -> [{_,{Total,_OldTime}}] = ets:lookup(Stat,message_count),
 						 case ets:lookup(Stat,sim_started) == [] of
-							true -> Time_diff = 0,Message_diff=0;
-							false -> [{_,Prev}] = ets:lookup(Stat,last_update_time),
-									 Time_diff = timer:now_diff(Value,Prev)/1000000,
-									 ets:insert(Stat,{last_update_time,Value}),
-									 Message_diff=1
+							true -> Seconds = 0,Message_diff=0;
+							false -> [{_,Prev}] = ets:lookup(Stat,start_sim_time),
+									 {Message_diff,CurrentTime} = Value,
+									 Seconds = timer:now_diff(CurrentTime,Prev)/1000000
 						 end,
-						 ets:insert(Stat,{message_count,{Total+Message_diff,Seconds+Time_diff}})
+						 ets:insert(Stat,{message_count,{Total+Message_diff,Seconds}})
 	end.
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -606,7 +607,7 @@ chooseStat({Type,Val}) ->
 		message_count -> {Total,Seconds}=Val,
 						  case Seconds == 0 of
 							true -> io:format("----simulation not started yet~n");
-							false ->  io:format("----amount of handled messages per seconds: ~p~n",[Total/Seconds])
+							false ->  io:format("----amount of handled messages per seconds: ~p ; ~p~n",[Total,Seconds])
 						  end;			  
 		_Any -> do_nothing
 	end.

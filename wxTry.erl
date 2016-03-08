@@ -27,6 +27,7 @@
 		 heli_amount,
 		 fire_amount,
 		 sensor_amount,
+		 cash_amount,
 		 random_but,
 		 smart_but,
 		 ets_name,
@@ -68,11 +69,13 @@ do_init([Server,MainData,SenData]) ->
 	
 	%static texts
 	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{312,22}}]),
-	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{582,22}}]),
-	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{822,22}}]),
-	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{442,18}}]), %set default value
-    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{682,18}}]),
-	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{932,18}}]),
+	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{530,22}}]),
+	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{722,22}}]),
+	wxStaticText:new(Panel, 203,"amount of cash",[{pos,{922,22}}]),
+	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{442,18}},{size,{70,22}}]), %set default value
+    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{630,18}},{size,{70,22}}]),
+	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{832,18}},{size,{70,22}}]),
+	Cash=wxTextCtrl:new(Panel, 103,[{value, "300"},{pos,{1022,18}},{size,{70,22}}]),
 	
 	MonPid = global:whereis_name(wxMon),
 	
@@ -88,7 +91,7 @@ do_init([Server,MainData,SenData]) ->
 	
 	ets:insert(sensAnm,{picNum,1}),
 	
-	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,smart_but=Smart_rand,self=self()},
+	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,cash_amount=Cash,ets_name=simData,sen_ets_name=senEts,random_but=Rand,smart_but=Smart_rand,self=self()},
 	
 	OnPaint=fun(_Evt,_Obj)->%%function to do when paint event called
 					
@@ -153,11 +156,13 @@ do_init(Server) ->
 	
 	%static texts
 	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{312,22}}]),
-	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{582,22}}]),
-	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{822,22}}]),
-	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{442,18}}]), %set default value
-    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{682,18}}]),
-	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{932,18}}]),
+	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{530,22}}]),
+	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{722,22}}]),
+	wxStaticText:new(Panel, 203,"amount of cash",[{pos,{922,22}}]),
+	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{442,18}},{size,{70,22}}]), %set default value
+    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{630,18}},{size,{70,22}}]),
+	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{832,18}},{size,{70,22}}]),
+	Cash=wxTextCtrl:new(Panel, 103,[{value, "300"},{pos,{1022,18}},{size,{70,22}}]),
 	
 	loc_monitor:start(wxMon),
 	MonPid = global:whereis_name(wxMon),
@@ -170,7 +175,7 @@ do_init(Server) ->
 	
 	ets:insert(sensAnm,{picNum,1}),
 	
-	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,smart_but=Smart_rand,self=self()},
+	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,cash_amount=Cash,ets_name=simData,sen_ets_name=senEts,random_but=Rand,smart_but=Smart_rand,self=self()},
 	
 	OnPaint=fun(_Evt,_Obj)->%%function to do when paint event called
 					
@@ -228,6 +233,57 @@ handle_event(_Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},St
 				randUnit(fire,FireNum,State#state.ets_name),
 				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(sensor,SenNum,State#state.sen_ets_name);
+				%io:format("ets = ~p~n",[ets:tab2list(State#state.ets_name)]);
+		false -> io:format("please enter NUMBERS into amount of units~n")
+	end,
+	
+	Pid = State#state.self,
+	Pid ! refresh,
+	
+	[TL_ets,TR_ets,BL_ets,BR_ets] = divide_unit_to_screens(State#state.ets_name,State#state.sen_ets_name),
+	
+	unit_server:create(tl,TL_ets),
+	unit_server:create(tr,TR_ets),
+	unit_server:create(bl,BL_ets),
+	unit_server:create(br,BR_ets),
+	
+    {noreply,State};
+	
+%randomizing units, with smart spread of sensors	
+handle_event(_Ev=#wx{id=12,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
+	io:format("smart randomizing units coordinates ~n"),
+	
+	ets:delete_all_objects(State#state.ets_name),
+	ets:delete_all_objects(State#state.sen_ets_name),
+	
+	HeliTxt = wxTextCtrl:getValue(State#state.heli_amount),
+	FireTxt = wxTextCtrl:getValue(State#state.fire_amount),
+	CashTxt = wxTextCtrl:getValue(State#state.cash_amount),
+	case list_to_number(HeliTxt) of   
+                badarg ->  HeliValid = false,HeliNum=0;
+                Number1 ->  HeliValid = true,HeliNum=Number1
+	end,
+	case list_to_number(FireTxt) of   
+                badarg ->  FireValid = false,FireNum=0;
+                Number2 ->  FireValid = true,FireNum=Number2
+	end,
+	case list_to_number(CashTxt) of   
+                badarg ->  CashValid = false,CashNum=0;
+                Number3 ->  CashValid = true,CashNum=Number3
+	end,
+	
+	Valid = (HeliValid and FireValid) and CashValid,
+	
+	case Valid == true of
+		true -> Tmp = erlang:system_time() / erlang:monotonic_time(),
+				Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+				random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
+				randUnit(heli,HeliNum,State#state.ets_name),
+				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
+				randUnit(fire,FireNum,State#state.ets_name),
+				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
+				smart_sensor_randomize(CashNum,State#state.sen_ets_name);
+				%randUnit(sensor,SenNum,State#state.sen_ets_name);
 				%io:format("ets = ~p~n",[ets:tab2list(State#state.ets_name)]);
 		false -> io:format("please enter NUMBERS into amount of units~n")
 	end,
@@ -521,3 +577,59 @@ get_updated_data(MainEts)->
 		Any4 -> Br = Any4
 	end,
 	[Tl,Tr,Bl,Br].
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+rand_single_sensor(_Radius,_Number,Tries,_Ets) when Tries==0 -> false; %io:format("reached try=0~n"),
+
+rand_single_sensor(Radius,Number,Tries,Ets) when Tries /= 0 -> 
+	io:format("tries left: ~p~n",[Tries]),
+	X = random:uniform(?Horizontal-Radius*4)+Radius*2,
+	Y  = random:uniform(?Vertical-Radius*3)+Radius,
+	QH = qlc:q([ found || {{sensor,_Name},RS,XS,YS} <- ets:table(Ets),((X-XS)*(X-XS) + (Y-YS)*(Y-YS))< (Radius+RS)*(Radius+RS)]),
+	case qlc:eval(QH) == [] of
+		true -> SensName=list_to_atom("sensor" ++ integer_to_list(Number)),
+				SensorData = {{sensor,SensName},Radius,X,Y},
+				ets:insert(Ets,SensorData),
+				true;
+		false -> rand_single_sensor(Radius,Number,Tries-1,Ets)
+	end.
+	
+add_sensor_to_screen(Type,Number,Ets)->
+	case Type of
+		large -> rand_single_sensor(?LARGE_SENSOR_SIZE,Number,10,Ets);
+		medium -> rand_single_sensor(?MEDIUM_SENSOR_SIZE,Number,20,Ets);
+		small -> rand_single_sensor(?SMALL_SENSOR_SIZE,Number,40,Ets)
+	end.
+
+smart_sensor_randomize(Cash,Ets) -> smart_sensor_randomize(Cash,1,Ets).
+	
+smart_sensor_randomize(Cash,Number,Ets) -> 
+
+	case Cash >= ?LARGE_SENSOR_PRICE of
+		true -> Large = add_sensor_to_screen(large,Number,Ets);
+		false -> Large = false
+	end,
+	
+	case Large of
+		true -> smart_sensor_randomize(Cash-?LARGE_SENSOR_PRICE,Number+1,Ets);
+		false -> case Cash >= ?MEDIUM_SENSOR_PRICE of
+					true -> Medium = add_sensor_to_screen(medium,Number,Ets);
+					false -> Medium = false
+				 end,
+				 case Medium of
+					true -> smart_sensor_randomize(Cash-?MEDIUM_SENSOR_PRICE,Number+1,Ets);
+					false -> case Cash >= ?SMALL_SENSOR_PRICE of
+								true -> Small = add_sensor_to_screen(small,Number,Ets);
+								false -> Small = false
+							 end,
+							 case Small of
+								true -> smart_sensor_randomize(Cash-?SMALL_SENSOR_PRICE,Number+1,Ets);
+								false -> stop%io:format("stop")
+							 end
+			 	 end
+	end.
+	
+	
+	
+	

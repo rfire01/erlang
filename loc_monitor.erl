@@ -79,7 +79,7 @@ handle_info({'DOWN', _MonitorRef, process, Pid, Reason}, _Server) ->
 					{heli,Name} -> heli:crash_recover(Name,ets:tab2list(TableId));
 					{fire,_Name} -> do_nothing;
 					{sensor,Name} -> sensor:crash_recover(Name,ets:tab2list(TableId));
-					{server,Name} -> timer:sleep(3000),unit_server:crash_recover(Name,ets:tab2list(TableId));
+					{server,Name} -> unit_server:crash_recover(Name,ets:tab2list(TableId));
 					{wxServer,_Name} -> [TableId2,_HeirData2]= get_ets(Ets,Pid,true),
 									  recover_wx(TableId,TableId2,HeirData);
 					_Any2 -> do_nothing

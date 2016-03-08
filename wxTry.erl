@@ -28,6 +28,7 @@
 		 fire_amount,
 		 sensor_amount,
 		 random_but,
+		 smart_but,
 		 ets_name,
 		 sen_ets_name,
 		 self
@@ -57,6 +58,7 @@ do_init([Server,MainData,SenData]) ->
 	
 	wxButton:new(Panel, 10, [{label, "&Start Game"},{pos,{3,13}},{size,{95,30}}]),			%%start game button
 	Rand=wxButton:new(Panel, 11, [{label, "&Randomize"},{pos,{105,13}},{size,{95,30}}]),		%%randomize game button
+	Smart_rand=wxButton:new(Panel, 12, [{label, "&smart spreading"},{pos,{207,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
 	
 	wxWindow:connect(Panel, command_button_clicked), 
 	
@@ -65,12 +67,12 @@ do_init([Server,MainData,SenData]) ->
 	wxImage:destroy(Map1),
 	
 	%static texts
-	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{210,22}}]),
-	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{480,22}}]),
-	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{720,22}}]),
-	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{340,18}}]), %set default value
-    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{580,18}}]),
-	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{830,18}}]),
+	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{312,22}}]),
+	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{582,22}}]),
+	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{822,22}}]),
+	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{442,18}}]), %set default value
+    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{682,18}}]),
+	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{932,18}}]),
 	
 	MonPid = global:whereis_name(wxMon),
 	
@@ -86,7 +88,7 @@ do_init([Server,MainData,SenData]) ->
 	
 	ets:insert(sensAnm,{picNum,1}),
 	
-	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,self=self()},
+	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,smart_but=Smart_rand,self=self()},
 	
 	OnPaint=fun(_Evt,_Obj)->%%function to do when paint event called
 					
@@ -136,6 +138,7 @@ do_init(Server) ->
 	
 	wxButton:new(Panel, 10, [{label, "&Start Game"},{pos,{3,13}},{size,{95,30}}]),			%%start game button
 	Rand=wxButton:new(Panel, 11, [{label, "&Randomize"},{pos,{105,13}},{size,{95,30}}]),		%%randomize game button
+	Smart_rand=wxButton:new(Panel, 12, [{label, "&smart spreading"},{pos,{207,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
 	
 	%wxFrame:connect(Frame, left_down),  													% Mouse left click 
 	% wxFrame:connect(Frame, right_down), 			
@@ -149,12 +152,12 @@ do_init(Server) ->
 	wxImage:destroy(Map1),
 	
 	%static texts
-	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{210,22}}]),
-	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{480,22}}]),
-	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{720,22}}]),
-	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{340,18}}]), %set default value
-    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{580,18}}]),
-	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{830,18}}]),
+	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{312,22}}]),
+	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{582,22}}]),
+	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{822,22}}]),
+	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{442,18}}]), %set default value
+    Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{682,18}}]),
+	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{932,18}}]),
 	
 	loc_monitor:start(wxMon),
 	MonPid = global:whereis_name(wxMon),
@@ -167,7 +170,7 @@ do_init(Server) ->
 	
 	ets:insert(sensAnm,{picNum,1}),
 	
-	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,self=self()},
+	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,ets_name=simData,sen_ets_name=senEts,random_but=Rand,smart_but=Smart_rand,self=self()},
 	
 	OnPaint=fun(_Evt,_Obj)->%%function to do when paint event called
 					
@@ -192,7 +195,7 @@ do_init(Server) ->
 %% Async Events are handled in handle_event as in handle_info
 
 %when randomize button clicked, randomizing all units places:
-handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
+handle_event(_Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
 	io:format("randomizing units coordinates ~n"),
 	
 	ets:delete_all_objects(State#state.ets_name),
@@ -242,10 +245,11 @@ handle_event(Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},Sta
     {noreply,State};
 	
 %when start button clicked, starting simulation:
-handle_event(Ev=#wx{id=10,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
+handle_event(_Ev=#wx{id=10,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
 	io:format("starting simulation ~n"),
 	
 	wxButton:disable(State#state.random_but),
+	wxButton:disable(State#state.smart_but),
 	unit_server:start_sim(tl),
 	unit_server:start_sim(tr),
 	unit_server:start_sim(bl),
@@ -320,7 +324,7 @@ terminate(Reason, State=#state{}) ->
 %%% Internal functions
 %%%===================================================================
 
-loop(Pid) -> receive after 30 -> Pid ! refresh end, loop(Pid).
+loop(Pid) -> receive after ?WX_UPDATE_SPEED -> Pid ! refresh end, loop(Pid).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -413,19 +417,18 @@ add_unit_to_screen(fire,[R,X,Y],Paint) ->
 	
 add_unit_to_screen(sensor,[R,X,Y,_SensName,ImagePath],Paint) ->
 
+	%% ---------------old
+	%Image1 = wxImage:new(ImagePath),
+	%Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
+	%Bmp = wxBitmap:new(Image2),
+	%wxImage:destroy(Image1),
+	%wxImage:destroy(Image2),
+	%wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
+	%wxBitmap:destroy(Bmp).
+	%% ---------------old
 	
-	%[{_,PicNum}] = ets:lookup(sensAnm,picNum),
-	%SensImgName="sensorPics/sensor" ++ integer_to_list(PicNum) ++ ".png",
-	Image1 = wxImage:new(ImagePath),
-	Image2 = wxImage:scale(Image1, 2*round(R),2*round(R)),
-	%%%%%%%%%%%Image51 = wxImage:rotate(Image4, Angle, {200,200}),
-	Bmp = wxBitmap:new(Image2),
-	wxImage:destroy(Image1),
-	wxImage:destroy(Image2),
-	%%%%%%%%%%%%wxImage:destroy(Image51),
-	wxDC:drawBitmap(Paint, Bmp, {round(X-R),round(Y-R)}),
-	wxBitmap:destroy(Bmp).
-	%% ---------------end yoed code
+	%% ---------------temp
+	wxDC:drawCircle(Paint, {X,Y}, R).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 	

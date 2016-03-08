@@ -249,6 +249,7 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective}) ->
 		true -> %io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
 				DifAngle = calc_angle_diff(CR),
+				update_stat(dest_time,erlang:timestamp()),
 				case Need_to_change_screen of 
 					false -> {next_state,search_circle,{CR,CX,CY,A,DifAngle,Objective},?REFRESH_SPEED};
 					Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{CR,CX,CY,A,DifAngle,Objective})
@@ -724,6 +725,7 @@ create_stat()->
 	ets:insert(Stat,{current_work_time,0}),
 	ets:insert(Stat,{work_time,0}),
 	ets:insert(Stat,{start_time,erlang:timestamp()}),
+	ets:insert(Stat,{dest_time,{0,0,ok}}),
 	ets:insert(Stat,{travelled,0}).
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -742,10 +744,18 @@ update_stat(Type,Value) ->
 				  ets:insert(Stat,{travelled,Travel+Value});
 		fires-> [{_,Fire}] = ets:lookup(Stat,fires),
 				 ets:insert(Stat,{fires,Fire+1});
-		current_work_time -> ets:insert(Stat,{current_work_time,Value});
+		current_work_time -> ets:insert(Stat,{current_work_time,Value}),
+							 [{_,{Time,Count,_State}}] = ets:lookup(Stat,dest_time),
+							 ets:insert(Stat,{dest_time,{Time,Count,waiting}});
 		work_time -> [{_,Prev}] = ets:lookup(Stat,current_work_time),
 					 [{_,Work_time}] = ets:lookup(Stat,work_time),
-					 ets:insert(Stat,{work_time,Work_time+timer:now_diff(Value,Prev)})
+					 ets:insert(Stat,{work_time,Work_time+timer:now_diff(Value,Prev)});
+		dest_time -> [{_,Prev}] = ets:lookup(Stat,current_work_time),
+					 [{_,{Time,Count,State}}] = ets:lookup(Stat,dest_time),
+					 case State == waiting of 
+						true -> ets:insert(Stat,{dest_time,{Time+timer:now_diff(Value,Prev),Count+1,ok}});
+						false-> do_nothing
+					end
 	end.
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -764,5 +774,10 @@ chooseStat({Type,Val}) ->
 		fires -> io:format("----fire extinguished by this heli: ~p ~n",[Val]);
 		work_time -> [{_,Start}] = ets:lookup(Stat,start_time),
 					 io:format("----total work time: ~p ; % of time working: ~p~n",[Val/1000000,100*Val/timer:now_diff(erlang:timestamp(),Start)]);
+		dest_time -> {Time,Count,_} = Val,
+					 case Count ==0 of
+						true -> io:format("----average time to reach to destination: ~p ~n",[undefined]);
+						false -> io:format("----average time to reach to destination: ~p ~n",[Time/Count/1000000])
+					end;
 		_Any -> do_nothing
 	end.

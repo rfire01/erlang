@@ -46,3 +46,13 @@
 
 -define(HELI_PIC_SIZE, 50).
 -define(HELI_PIC_HALF, round(?HELI_PIC_SIZE/2)).
+
+-define(WX_UPDATE_SPEED, 30).
+
+-define(LARGE_SENSOR_SIZE,10).
+-define(MEDIUM_SENSOR_SIZE,10).
+-define(SMALL_SENSOR_SIZE,10).
+
+-define(LARGE_SENSOR_PRICE,10).
+-define(MEDIUM_SENSOR_PRICE,10).
+-define(SMALL_SENSOR_PRICE,10).

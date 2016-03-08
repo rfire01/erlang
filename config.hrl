@@ -37,7 +37,7 @@
 -define(OVERLAP_PERC, 90).
 
 %wxTry
--define(Horizontal,1200).
+-define(Horizontal,1300).
 -define(Vertical,556).
 
 -define(FireDefaultRadius, 20).

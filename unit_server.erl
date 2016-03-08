@@ -218,8 +218,8 @@ handle_cast({start_sim}, State) ->
 	[sensor:start_sim(Name) || [Name] <- SenList],
 	
 	Stat = get(stat),
+	update_stat(start_sim_time,erlang:timestamp()),
 	ets:insert(Stat,{sim_started,true}),
-	io:format("~p~n",[ets:lookup(Stat,sim_started)]),
 	{noreply, State};
 	
 handle_cast({update,Unit_Type,Unit_Data}, State) ->
@@ -577,7 +577,7 @@ update_stat(Type,Value) ->
 	case Type of
 		heli_count -> [{_,{Total,Count,_}}] = ets:lookup(Stat,heli_count),
 					  ets:insert(Stat,{heli_count,{Total+Value,Count+1,Value}});
-		start_sim_time -> ets:insert(Stat,{start_sim_time,erlang:timestamp()});
+		start_sim_time -> ets:insert(Stat,{start_sim_time,Value});
 		message_count -> [{_,{Total,_OldTime}}] = ets:lookup(Stat,message_count),
 						 case ets:lookup(Stat,sim_started) == [] of
 							true -> Seconds = 0,Message_diff=0;
@@ -607,7 +607,7 @@ chooseStat({Type,Val}) ->
 		message_count -> {Total,Seconds}=Val,
 						  case Seconds == 0 of
 							true -> io:format("----simulation not started yet~n");
-							false ->  io:format("----amount of handled messages per seconds: ~p ; ~p~n",[Total,Seconds])
+							false ->  io:format("----amount of handled messages per seconds: ~p~n",[Total/Seconds])
 						  end;			  
 		_Any -> do_nothing
 	end.

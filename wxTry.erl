@@ -142,6 +142,8 @@ do_init(Server) ->
 	wxButton:new(Panel, 10, [{label, "&Start Game"},{pos,{3,13}},{size,{95,30}}]),			%%start game button
 	Rand=wxButton:new(Panel, 11, [{label, "&Randomize"},{pos,{105,13}},{size,{95,30}}]),		%%randomize game button
 	Smart_rand=wxButton:new(Panel, 12, [{label, "&smart spreading"},{pos,{207,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
+	wxButton:new(Panel, 13, [{label, "&heli \nstatistics"},{pos,{1080,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
+	wxButton:new(Panel, 14, [{label, "&gen_server \nstatistics"},{pos,{1180,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
 	
 	%wxFrame:connect(Frame, left_down),  													% Mouse left click 
 	% wxFrame:connect(Frame, right_down), 			
@@ -158,11 +160,11 @@ do_init(Server) ->
 	wxStaticText:new(Panel, 201,"amount of helicopters:",[{pos,{312,22}}]),
 	wxStaticText:new(Panel, 202,"amount of fires",[{pos,{530,22}}]),
 	wxStaticText:new(Panel, 203,"amount of sensors",[{pos,{722,22}}]),
-	wxStaticText:new(Panel, 203,"amount of cash",[{pos,{922,22}}]),
+	wxStaticText:new(Panel, 203,"amount of cash",[{pos,{912,22}}]),
 	Heli=wxTextCtrl:new(Panel, 101,[{value, "1"},{pos,{442,18}},{size,{70,22}}]), %set default value
     Fire=wxTextCtrl:new(Panel, 102,[{value, "1"},{pos,{630,18}},{size,{70,22}}]),
 	Sens=wxTextCtrl:new(Panel, 103,[{value, "5"},{pos,{832,18}},{size,{70,22}}]),
-	Cash=wxTextCtrl:new(Panel, 103,[{value, "300"},{pos,{1022,18}},{size,{70,22}}]),
+	Cash=wxTextCtrl:new(Panel, 103,[{value, "300"},{pos,{1002,18}},{size,{70,22}}]),
 	
 	loc_monitor:start(wxMon),
 	MonPid = global:whereis_name(wxMon),
@@ -186,9 +188,8 @@ do_init(Server) ->
 					add_units_to_screen(simData,Paint,senEts),
 					
 					wxBufferedPaintDC:destroy(Paint) end,					
-	wxFrame:connect(Panel, paint, [{callback,OnPaint}]),%%connect paint event to panel with callbakc function OnPaint
+	wxFrame:connect(Panel, paint, [{callback,OnPaint}]),%%connect paint event to panel with callback function OnPaint
 	
-	%io:format("########### ~p ##############3 ~n",[global:whereis_name(full)]),
 	S=self(),
 	register(refresher, spawn_link(fun() -> loop(S) end)),
 	
@@ -313,6 +314,21 @@ handle_event(_Ev=#wx{id=10,event = #wxCommand{type = command_button_clicked}},St
 	
     {noreply,State};
 
+%when start button clicked, print all helicopters statistics 
+handle_event(_Ev=#wx{id=13,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
+    QH = qlc:q([HeliName || {{heli,HeliName},_,_,_} <- ets:table(State#state.ets_name)]),
+	io:format("########## HELICOPTERS STATISTICS ##########~n~n"),
+	spawn(fun() -> print_stat(qlc:eval(QH),heli) end),
+	%[ heli:statistics(Name) || Name <- qlc:eval(QH)],
+    {noreply,State};
+	
+%when start button clicked, print all gen_servers statistics 
+handle_event(_Ev=#wx{id=14,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
+	io:format("########## GEN_SERVERS STATISTICS ##########~n~n"),
+	spawn(fun() -> print_stat([tl,tr,bl,br],server) end),
+	%[ unit_server:statistics(Name) || Name <- [tl,tr,bl,br]],
+    {noreply,State};
+	
 handle_event(Ev = #wx{}, State = #state{}) ->
     io:format("Got Event ~p~n",[Ev]),
     {noreply,State}.
@@ -583,7 +599,6 @@ get_updated_data(MainEts)->
 rand_single_sensor(_Radius,_Number,Tries,_Ets) when Tries==0 -> false; %io:format("reached try=0~n"),
 
 rand_single_sensor(Radius,Number,Tries,Ets) when Tries /= 0 -> 
-	io:format("tries left: ~p~n",[Tries]),
 	X = random:uniform(?Horizontal-Radius*4)+Radius*2,
 	Y  = random:uniform(?Vertical-Radius*3)+Radius,
 	QH = qlc:q([ found || {{sensor,_Name},RS,XS,YS} <- ets:table(Ets),((X-XS)*(X-XS) + (Y-YS)*(Y-YS))< (Radius+RS)*(Radius+RS)]),
@@ -597,39 +612,76 @@ rand_single_sensor(Radius,Number,Tries,Ets) when Tries /= 0 ->
 	
 add_sensor_to_screen(Type,Number,Ets)->
 	case Type of
-		large -> rand_single_sensor(?LARGE_SENSOR_SIZE,Number,10,Ets);
-		medium -> rand_single_sensor(?MEDIUM_SENSOR_SIZE,Number,20,Ets);
-		small -> rand_single_sensor(?SMALL_SENSOR_SIZE,Number,40,Ets)
+		large -> rand_single_sensor(?LARGE_SENSOR_SIZE,Number,20,Ets);
+		medium -> rand_single_sensor(?MEDIUM_SENSOR_SIZE,Number,40,Ets);
+		small -> rand_single_sensor(?SMALL_SENSOR_SIZE,Number,60,Ets)
 	end.
 
-smart_sensor_randomize(Cash,Ets) -> smart_sensor_randomize(Cash,1,Ets).
+smart_sensor_randomize(Cash,Ets) -> smart_sensor_randomize(Cash,1,large,Ets).
 	
-smart_sensor_randomize(Cash,Number,Ets) -> 
-
+smart_sensor_randomize(Cash,Number,Size,Ets) when Size == large -> 
 	case Cash >= ?LARGE_SENSOR_PRICE of
-		true -> Large = add_sensor_to_screen(large,Number,Ets);
-		false -> Large = false
-	end,
+		true -> case add_sensor_to_screen(large,Number,Ets) of 
+					true -> smart_sensor_randomize(Cash-?LARGE_SENSOR_PRICE,Number+1,large,Ets);
+					false -> smart_sensor_randomize(Cash,Number,medium,Ets)
+				end;
+		false -> smart_sensor_randomize(Cash,Number,medium,Ets)
+	end;
 	
-	case Large of
-		true -> smart_sensor_randomize(Cash-?LARGE_SENSOR_PRICE,Number+1,Ets);
-		false -> case Cash >= ?MEDIUM_SENSOR_PRICE of
-					true -> Medium = add_sensor_to_screen(medium,Number,Ets);
-					false -> Medium = false
-				 end,
-				 case Medium of
-					true -> smart_sensor_randomize(Cash-?MEDIUM_SENSOR_PRICE,Number+1,Ets);
-					false -> case Cash >= ?SMALL_SENSOR_PRICE of
-								true -> Small = add_sensor_to_screen(small,Number,Ets);
-								false -> Small = false
-							 end,
-							 case Small of
-								true -> smart_sensor_randomize(Cash-?SMALL_SENSOR_PRICE,Number+1,Ets);
-								false -> stop%io:format("stop")
-							 end
-			 	 end
-	end.
+smart_sensor_randomize(Cash,Number,Size,Ets) when Size == medium -> 
+	case Cash >= ?MEDIUM_SENSOR_PRICE of
+		true -> case add_sensor_to_screen(medium,Number,Ets) of 
+					true -> smart_sensor_randomize(Cash-?MEDIUM_SENSOR_PRICE,Number+1,large,Ets);
+					false -> smart_sensor_randomize(Cash,Number,small,Ets)
+				end;
+		false -> smart_sensor_randomize(Cash,Number,small,Ets)
+	end;
+
+smart_sensor_randomize(Cash,Number,Size,Ets) when Size == small -> 
+	case Cash >= ?SMALL_SENSOR_PRICE of
+		true -> case add_sensor_to_screen(small,Number,Ets) of 
+					true -> smart_sensor_randomize(Cash-?SMALL_SENSOR_PRICE,Number+1,large,Ets);
+					false -> stop
+				end;
+		false -> stop
+	end.	
+
+%	case Cash >= ?LARGE_SENSOR_PRICE of
+%		true -> Large = add_sensor_to_screen(large,Number,Ets);
+%		false -> Large = false
+%	end,
+%	
+%	case Large of
+%		true -> smart_sensor_randomize(Cash-?LARGE_SENSOR_PRICE,Number+1,Ets);
+%		false -> case Cash >= ?MEDIUM_SENSOR_PRICE of
+%					true -> Medium = add_sensor_to_screen(medium,Number,Ets);
+%					false -> Medium = false
+%				 end,
+%				 case Medium of
+%					true -> smart_sensor_randomize(Cash-?MEDIUM_SENSOR_PRICE,Number+1,Ets);
+%					false -> case Cash >= ?SMALL_SENSOR_PRICE of
+%								true -> Small = add_sensor_to_screen(small,Number,Ets);
+%								false -> Small = false
+%							 end,
+%							 case Small of
+%								true -> smart_sensor_randomize(Cash-?SMALL_SENSOR_PRICE,Number+1,Ets);
+%								false -> stop%io:format("stop")
+%							 end
+%			 	 end
+%	end.
 	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+print_stat([],_Type) -> io:format("~n");
+
+print_stat([H|T],Type) when Type == heli ->
+	heli:statistics(H),
+	timer:sleep(200),
+	print_stat(T,Type);
 	
+print_stat([H|T],Type) when Type == server ->
+	unit_server:statistics(H),
+	timer:sleep(200),
+	print_stat(T,Type).
 	
 	

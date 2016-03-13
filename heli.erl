@@ -713,8 +713,8 @@ check_screen(X,Y) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 wait_for_server_recover(ServerName,Serv,Data,State,StateData) ->
-	%case (global:whereis_name(ServerName) /= undefined) and (global:whereis_name(Serv) /= undefined) of
-	case (check_server(ServerName) /= pang) and (check_server(Serv) /= pang) of
+	case (global:whereis_name(ServerName) /= undefined) and (global:whereis_name(Serv) /= undefined) of
+	%case (check_server(ServerName) /= pang) and (check_server(Serv) /= pang) of
 		true -> Stat = get(stat),
 				unit_server:change_screen(ServerName,Serv,Data,State,StateData,ets:tab2list(Stat)),
 				{stop,normal,{}};

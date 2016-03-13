@@ -3,7 +3,7 @@
 %erl -setcookie hi -name TLserver@127.0.0.1
 
 -define(WX_SERVER_NODE, 'wx_server@10.42.0.21').
--define(TLSERVER_NODE,   'TLserver@10.42.0.1').
+-define(TLSERVER_NODE,   'TLserver@10.42.0.21').
 -define(TRSERVER_NODE,   'TRserver@10.42.0.21').
 -define(BLSERVER_NODE,   'BLserver@10.42.0.21').
 -define(BRSERVER_NODE,   'BRserver@10.42.0.21').

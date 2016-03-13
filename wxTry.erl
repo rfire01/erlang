@@ -51,7 +51,7 @@ init(Server) ->
         wx:batch(fun() -> do_init(Server) end).
 
 do_init([Server,MainData,SenData]) ->
-	global:register_name(wx_server,self()),
+	%register(wx_server,self()), io:format("done! 1~n"),
 	
 	Frame = wxFrame:new(Server, -1, "wx test sim", [{size,{?Horizontal, ?Vertical}}]),		%%create frame for the simulator
 	Panel  = wxPanel:new(Frame,[{style, ?wxFULL_REPAINT_ON_RESIZE}]),						%%create panel from the frame
@@ -111,11 +111,12 @@ do_init([Server,MainData,SenData]) ->
 	%io:format("########### ~p ##############3 ~n",[global:whereis_name(full)]),
 	S=self(),
 	register(refresher, spawn_link(fun() -> loop(S) end)),
+	spawn_link(fun() -> watch_dog() end),
 	
 	{Panel, State};
 		
 do_init(Server) ->
-	global:register_name(wx_server,self()),
+	%register(wx_server,self()),
 	%%----------- init local servers (for each part of screen)
 	case connect_to_nodes([?TLSERVER_NODE,?TRSERVER_NODE,?BLSERVER_NODE,?BRSERVER_NODE]) of
 		ok -> case global:whereis_name(tl) == undefined of
@@ -198,7 +199,7 @@ do_init(Server) ->
 	
 	S=self(),
 	register(refresher, spawn_link(fun() -> loop(S) end)),
-	
+	spawn_link(fun() -> watch_dog() end),
 	
 	{Panel, State}.
 
@@ -383,15 +384,10 @@ handle_info(refresh,State=#state{})->
 	
 	%end animation of sensor:
 	
-	%Updated_list = get_updated_data(State#state.ets_name), %unit_server:wx_update(tl) ++ unit_server:wx_update(tr) ++ unit_server:wx_update(bl) ++ unit_server:wx_update(br),
-	%ets:delete_all_objects(State#state.ets_name),
-	%[ ets:insert(State#state.ets_name,Server_list) || Server_list <- Updated_list],
+	Updated_list = get_updated_data(State#state.ets_name), %unit_server:wx_update(tl) ++ unit_server:wx_update(tr) ++ unit_server:wx_update(bl) ++ unit_server:wx_update(br),
+	ets:delete_all_objects(State#state.ets_name),
+	[ ets:insert(State#state.ets_name,Server_list) || Server_list <- Updated_list],
 	wxWindow:refresh(State#state.parent,[{eraseBackground,false}]),
-	{noreply,State};
-	
-handle_info({wx_update,List},State=#state{})->	
-	%io:format("new data = ~p~n",[List]),
-	ets:insert(State#state.ets_name,List),
 	{noreply,State};
 
 handle_info({crash,Num},_State)->
@@ -414,7 +410,6 @@ code_change(_, _, State) ->
 
 terminate(Reason, State=#state{}) ->
 	%io:format("reason = ~p~n",[Reason]),
-	global:unregister_name(wx_server),
 	wxWindow:destroy(State#state.canvas),
 	wx:destroy(),
 	case whereis(refresher) of
@@ -718,3 +713,12 @@ getPid([H|T],Start,Res) when Start==true  -> case ([H|[]]==".")of
 												true -> list_to_integer(Res);
 												false -> getPid(T,Start,Res ++ [H])
 											 end.
+											 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+watch_dog() ->
+	net_adm:ping(?TLSERVER_NODE),
+	net_adm:ping(?TRSERVER_NODE),
+	net_adm:ping(?BLSERVER_NODE),
+	net_adm:ping(?BRSERVER_NODE),
+	timer:sleep(1000),
+	watch_dog().

@@ -246,6 +246,9 @@ handle_sync_event(_Event, _From, StateName, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
+handle_info({_,{stop}}, _StateName, State) ->
+	{stop, normal, State};
+
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
  

@@ -214,6 +214,10 @@ handle_sync_event(_Event, _From, StateName, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
+handle_info({_,{stop}}, _StateName, State) ->
+	{stop, normal, State};
+
+
 handle_info(check_alert, StateName, State) ->
 
 	Ets = get(ets_id),

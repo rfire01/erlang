@@ -18,7 +18,6 @@
 %%====================================================================
 %% Booting server (and linking to it)
 start(MonName) -> 
-    %io:format("LOCtest1~n"),
     gen_server:start({global, MonName}, ?MODULE, [], []).
 	
 add_mon(MonName,ProcPid) ->
@@ -31,11 +30,8 @@ stop(MonName) ->
 %% gen_server callbacks
 %%====================================================================
 init([]) ->
-	%io:format("LOCtest2~n"),
 	Ets = ets:new(saveData,[set]),
-	%io:format("LOCtest3~n"),
 	put(ets_id,Ets),
-	%io:format("LOCtest4~n"),
     {ok, initialized}.
 
 %% Synchronous, possible return values  
@@ -75,7 +71,6 @@ handle_cast(_Message, State) ->
 handle_info({'DOWN', _MonitorRef, process, Pid, Reason}, _Server) -> 
 	Ets = get(ets_id),
 	case Reason of
-		killed -> ets:delete(Ets,Pid);
 		normal -> ets:delete(Ets,Pid);
 		wx_deleted -> ets:delete(Ets,Pid);
 		_Any -> [TableId,HeirData] = get_ets(Ets,Pid,false),

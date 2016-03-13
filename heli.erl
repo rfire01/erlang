@@ -528,6 +528,16 @@ handle_sync_event(_Event, _From, StateName, State) ->
 %%                   {stop, Reason, NewState}
 %% @end
 %%--------------------------------------------------------------------
+handle_info({_,{stop}}, _StateName, State) ->
+	{stop, normal, State};
+	
+handle_info({_,{crash,Num}}, StateName, _State) ->
+    {next_state, StateName, 1/Num};
+	
+handle_info({_,{stat}}, StateName, State) ->
+	print_stat(),
+	{next_state, StateName, State,?REFRESH_SPEED};
+
 handle_info(_Info, StateName, State) ->
 	io:format("unsupported message received ~p in state ~p~n",[_Info,StateName]),
     {next_state, StateName, State}.
@@ -714,21 +724,12 @@ check_screen(X,Y) ->
 
 wait_for_server_recover(ServerName,Serv,Data,State,StateData) ->
 	case (global:whereis_name(ServerName) /= undefined) and (global:whereis_name(Serv) /= undefined) of
-	%case (check_server(ServerName) /= pang) and (check_server(Serv) /= pang) of
 		true -> Stat = get(stat),
 				unit_server:change_screen(ServerName,Serv,Data,State,StateData,ets:tab2list(Stat)),
 				{stop,normal,{}};
 		false -> timer:sleep(?REFRESH_SPEED),
 				 wait_for_server_recover(ServerName,Serv,Data,State,StateData)
 	end.
-	
-check_server(Name) ->
-  case Name of
-    tl -> net_adm:ping(?TLSERVER_NODE);
-    tr -> net_adm:ping(?TRSERVER_NODE);
-    bl -> net_adm:ping(?BLSERVER_NODE);
-    br -> net_adm:ping(?BRSERVER_NODE)
-   end.
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

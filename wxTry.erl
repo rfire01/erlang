@@ -51,7 +51,7 @@ init(Server) ->
         wx:batch(fun() -> do_init(Server) end).
 
 do_init([Server,MainData,SenData]) ->
-	%register(wx_server,self()), io:format("done! 1~n"),
+	global:register_name(wx_server,self()),
 	
 	Frame = wxFrame:new(Server, -1, "wx test sim", [{size,{?Horizontal, ?Vertical}}]),		%%create frame for the simulator
 	Panel  = wxPanel:new(Frame,[{style, ?wxFULL_REPAINT_ON_RESIZE}]),						%%create panel from the frame
@@ -115,7 +115,7 @@ do_init([Server,MainData,SenData]) ->
 	{Panel, State};
 		
 do_init(Server) ->
-	%register(wx_server,self()),
+	global:register_name(wx_server,self()),
 	%%----------- init local servers (for each part of screen)
 	case connect_to_nodes([?TLSERVER_NODE,?TRSERVER_NODE,?BLSERVER_NODE,?BRSERVER_NODE]) of
 		ok -> case global:whereis_name(tl) == undefined of
@@ -383,10 +383,15 @@ handle_info(refresh,State=#state{})->
 	
 	%end animation of sensor:
 	
-	Updated_list = get_updated_data(State#state.ets_name), %unit_server:wx_update(tl) ++ unit_server:wx_update(tr) ++ unit_server:wx_update(bl) ++ unit_server:wx_update(br),
-	ets:delete_all_objects(State#state.ets_name),
-	[ ets:insert(State#state.ets_name,Server_list) || Server_list <- Updated_list],
+	%Updated_list = get_updated_data(State#state.ets_name), %unit_server:wx_update(tl) ++ unit_server:wx_update(tr) ++ unit_server:wx_update(bl) ++ unit_server:wx_update(br),
+	%ets:delete_all_objects(State#state.ets_name),
+	%[ ets:insert(State#state.ets_name,Server_list) || Server_list <- Updated_list],
 	wxWindow:refresh(State#state.parent,[{eraseBackground,false}]),
+	{noreply,State};
+	
+handle_info({wx_update,List},State=#state{})->	
+	%io:format("new data = ~p~n",[List]),
+	ets:insert(State#state.ets_name,List),
 	{noreply,State};
 
 handle_info({crash,Num},_State)->
@@ -409,6 +414,7 @@ code_change(_, _, State) ->
 
 terminate(Reason, State=#state{}) ->
 	%io:format("reason = ~p~n",[Reason]),
+	global:unregister_name(wx_server),
 	wxWindow:destroy(State#state.canvas),
 	wx:destroy(),
 	case whereis(refresher) of
@@ -537,7 +543,8 @@ add_unit_to_screen(sensor,[R,X,Y,_SensName,Angle],Paint) ->
 	%% ---------------temp
 	%io:format("angle=~p~n",[Angle]),
 	wxDC:drawCircle(Paint, {X,Y}, R),
-	wxDC:drawLine(Paint, {X, Y}, {erlang:round(X+math:cos(Angle)*R),erlang:round(Y+math:sin(Angle)*R)}).
+	wxDC:drawLine(Paint, {X, Y}, {erlang:round(X+math:cos(Angle)*R),erlang:round(Y+math:sin(Angle)*R)}),
+	wxDC:drawLine(Paint, {X, Y}, {erlang:round(X+math:cos(Angle+math:pi()/10)*R),erlang:round(Y+math:sin(Angle+math:pi()/10)*R)}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 	

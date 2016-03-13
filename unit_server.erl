@@ -108,6 +108,8 @@ init([Name]) ->
 
 	create_stat(),
 
+	S=self(),
+	register(refresher, spawn_link(fun() -> loop(S) end)),
 	
     {ok, initialized};
 	
@@ -128,6 +130,9 @@ init([crash,Data]) ->
 	put(sen_fire_id,Sen_fire),
 	
 	create_stat(),
+	
+	S=self(),
+	register(refresher, spawn_link(fun() -> loop(S) end)),
 	
     {ok, initialized}.
 
@@ -455,13 +460,43 @@ handle_cast(_Message, State) ->
 % {noreply,NewState,Timeout} 
 % {noreply,NewState,hibernate}
 % {stop,Reason,NewState}
+handle_info(refresh, State) ->
+	%io:format("sending data~n"),
+	Ets = get(ets_id),
+	
+	QH = qlc:q([{{Type,Name},Field1,Field2,Field3}	|| {{Type,Name},Field1,Field2,Field3} <- ets:table(Ets), ((Type==fire) or (Type==heli))]),
+	
+	Stat = get(stat),
+	case ets:lookup(Stat,sim_started) == [] of
+		true -> do_nothing;
+		false ->
+				QH2 = qlc:q([1	|| {{heli,_},_,_,_} <- ets:table(Ets)]),
+				Current_heli_amount = erlang:length(qlc:eval(QH2)),
+				update_stat(heli_count,Current_heli_amount),
+				update_stat(message_count,{0,erlang:now()})
+	end,
+	
+	%Pid = global:whereis_name(wx_server),
+	%io:format("###################################~n#######################~n~p###################################~n#######################~n",[qlc:eval(QH)]),
+	
+	case global:whereis_name(wx_server) of
+	  undefined -> do_nothing;
+	  Pid ->Pid ! {wx_update,qlc:eval(QH)} %, io:format("sending ~p~n",[qlc:eval(QH)])
+	end,
+	{noreply, State};
+
+
 handle_info(_Message, _Server) -> 
-    %io:format("Generic info handler: '~p' '~p'~n",[_Message, _Server]),
+   % io:format("Generic info handler: '~p' '~p'~n",[_Message, _Server]),
     {noreply, _Server}.
 
 %% Server termination
 terminate(Reason, _Server) ->
-
+	
+	case whereis(refresher) of
+		undefined -> ok;
+		Pid -> exit(Pid,kill)
+	end,
 	case Reason == normal of
 		true ->
 				MonName = get(mon_name),
@@ -633,3 +668,6 @@ chooseStat({Type,Val}) ->
 						  end;			  
 		_Any -> do_nothing
 	end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+loop(Pid) -> receive after ?WX_UPDATE_SPEED -> Pid ! refresh end, loop(Pid).

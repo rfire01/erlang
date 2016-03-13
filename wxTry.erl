@@ -60,6 +60,8 @@ do_init([Server,MainData,SenData]) ->
 	wxButton:new(Panel, 10, [{label, "&Start Game"},{pos,{3,13}},{size,{95,30}}]),			%%start game button
 	Rand=wxButton:new(Panel, 11, [{label, "&Randomize"},{pos,{105,13}},{size,{95,30}}]),		%%randomize game button
 	Smart_rand=wxButton:new(Panel, 12, [{label, "&smart spreading"},{pos,{207,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
+	wxButton:new(Panel, 13, [{label, "&heli \nstatistics"},{pos,{1080,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
+	wxButton:new(Panel, 14, [{label, "&gen_server \nstatistics"},{pos,{1180,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
 	
 	wxWindow:connect(Panel, command_button_clicked), 
 	
@@ -89,7 +91,7 @@ do_init([Server,MainData,SenData]) ->
 	
 	ets:new(sensAnm,[set,named_table]),
 	
-	ets:insert(sensAnm,{picNum,1}),
+	ets:insert(sensAnm,{angle,0}),
 	
 	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,cash_amount=Cash,ets_name=simData,sen_ets_name=senEts,random_but=Rand,smart_but=Smart_rand,self=self()},
 	
@@ -175,7 +177,7 @@ do_init(Server) ->
 	
 	loc_monitor:add_mon(wxMon,self()),
 	
-	ets:insert(sensAnm,{picNum,1}),
+	ets:insert(sensAnm,{angle,0}),
 	
 	State= #state{parent=Panel,canvas = Frame,heli_amount=Heli,fire_amount=Fire,sensor_amount=Sens,cash_amount=Cash,ets_name=simData,sen_ets_name=senEts,random_but=Rand,smart_but=Smart_rand,self=self()},
 	
@@ -339,11 +341,8 @@ handle_info(refresh,State=#state{})->
 
 	%animation of sensor:
 	
-	[{_,PicNum}] = ets:lookup(sensAnm,picNum),
-	case PicNum==21 of
-		true -> ets:insert(sensAnm,{picNum,1});
-		false -> ets:insert(sensAnm,{picNum,PicNum+1})
-	end,
+	[{_,Angle}] = ets:lookup(sensAnm,angle),
+	ets:insert(sensAnm,{angle,Angle+ math:pi()/15}),
 	
 	%end animation of sensor:
 	
@@ -442,19 +441,18 @@ randUnit(sensor,Amount,EtsName) ->
 	SensorData = {{sensor,SensName},?SensorRadius,X,Y},
 	%add_to_ets(sens,SensorData,EtsName),
 	ets:insert(EtsName,SensorData),
-	ets:insert(sensAnm,{SensName,2}),
 	randUnit(sensor,Amount-1,EtsName).
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 add_units_to_screen(EtsName,Paint,SenEts) ->
 	
-	[{_,PicNum}] = ets:lookup(sensAnm,picNum),
-	SensImgName="sensorPics/sensor" ++ integer_to_list(PicNum) ++ ".png",
+	[{_,Angle}] = ets:lookup(sensAnm,angle),
+	
 		
 	QH_fire = qlc:q([[R,X,Y] || {{fire,_},R,X,Y} <- ets:table(EtsName)]),
 	QH_heli = qlc:q([[X,Y] || {{heli,_},X,Y,_} <- ets:table(EtsName)]),
-	QH_sensor = qlc:q([[R,X,Y,SensName,SensImgName] || {{sensor,SensName},R,X,Y} <- ets:table(SenEts)]),
+	QH_sensor = qlc:q([[R,X,Y,SensName,Angle] || {{sensor,SensName},R,X,Y} <- ets:table(SenEts)]),
 
 	[ add_unit_to_screen(sensor,Unit,Paint) || Unit <- qlc:eval(QH_sensor)],
 	[ add_unit_to_screen(fire,Unit,Paint) || Unit <- qlc:eval(QH_fire)],
@@ -487,7 +485,7 @@ add_unit_to_screen(fire,[R,X,Y],Paint) ->
 		false -> do_nothing
 	end;
 	
-add_unit_to_screen(sensor,[R,X,Y,_SensName,ImagePath],Paint) ->
+add_unit_to_screen(sensor,[R,X,Y,_SensName,Angle],Paint) ->
 
 	%% ---------------old
 	%Image1 = wxImage:new(ImagePath),
@@ -500,7 +498,9 @@ add_unit_to_screen(sensor,[R,X,Y,_SensName,ImagePath],Paint) ->
 	%% ---------------old
 	
 	%% ---------------temp
-	wxDC:drawCircle(Paint, {X,Y}, R).
+	%io:format("angle=~p~n",[Angle]),
+	wxDC:drawCircle(Paint, {X,Y}, R),
+	wxDC:drawLine(Paint, {X, Y}, {erlang:round(X+math:cos(Angle)*R),erlang:round(Y+math:sin(Angle)*R)}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 	
@@ -645,30 +645,6 @@ smart_sensor_randomize(Cash,Number,Size,Ets) when Size == small ->
 				end;
 		false -> stop
 	end.	
-
-%	case Cash >= ?LARGE_SENSOR_PRICE of
-%		true -> Large = add_sensor_to_screen(large,Number,Ets);
-%		false -> Large = false
-%	end,
-%	
-%	case Large of
-%		true -> smart_sensor_randomize(Cash-?LARGE_SENSOR_PRICE,Number+1,Ets);
-%		false -> case Cash >= ?MEDIUM_SENSOR_PRICE of
-%					true -> Medium = add_sensor_to_screen(medium,Number,Ets);
-%					false -> Medium = false
-%				 end,
-%				 case Medium of
-%					true -> smart_sensor_randomize(Cash-?MEDIUM_SENSOR_PRICE,Number+1,Ets);
-%					false -> case Cash >= ?SMALL_SENSOR_PRICE of
-%								true -> Small = add_sensor_to_screen(small,Number,Ets);
-%								false -> Small = false
-%							 end,
-%							 case Small of
-%								true -> smart_sensor_randomize(Cash-?SMALL_SENSOR_PRICE,Number+1,Ets);
-%								false -> stop%io:format("stop")
-%							 end
-%			 	 end
-%	end.
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

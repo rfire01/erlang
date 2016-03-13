@@ -78,6 +78,9 @@ init([Name,ServerName,StartRadius,X,Y]) ->
 	ets:insert(Ets,{myName,Name}),
 	ets:insert(Ets,{serverName,ServerName}),
 	
+	ets:setopts(Ets,{heir,MonPid , {fire,Name}}),
+	loc_monitor:add_mon(MonName,global:whereis_name(Name)),
+	
 	create_stat(StartRadius),
 	%io:format("started fire with radius = ~p~n",[StartRadius]),
 	rand_idle_diff(),

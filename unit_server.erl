@@ -200,10 +200,10 @@ handle_cast({create,DataList}, State) ->
 	SenList = ets:match(Ets,{{sensor,'$1'},'$2','$3','$4'}),
 	[sensor:start(Name,MyName) || [Name,_,_,_] <- SenList],
 	
-	MonName = get(mon_name),
-	[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_,_] <- SenList],
-	[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_,_] <- FireList],
-	[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_] <- HeliList],
+	%MonName = get(mon_name),
+	%[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_,_] <- SenList],
+	%[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_,_] <- FireList],
+	%[loc_monitor:add_mon(MonName,global:whereis_name(Name)) || [Name,_,_] <- HeliList],
 	
     {noreply, State};
 	

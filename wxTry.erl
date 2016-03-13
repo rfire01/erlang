@@ -63,6 +63,8 @@ do_init([Server,MainData,SenData]) ->
 	wxButton:new(Panel, 13, [{label, "&heli \nstatistics"},{pos,{1080,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
 	wxButton:new(Panel, 14, [{label, "&gen_server \nstatistics"},{pos,{1180,13}},{size,{95,30}}]),		%%randomize units, with smart sensor spreading
 	
+	wxPanel:connect (Panel, left_down),
+	
 	wxWindow:connect(Panel, command_button_clicked), 
 	
 	Map1 = wxImage:new("pic/forest_3.jpg"),														%%background image
@@ -150,7 +152,7 @@ do_init(Server) ->
 	%wxFrame:connect(Frame, left_down),  													% Mouse left click 
 	% wxFrame:connect(Frame, right_down), 			
 	% Mouse right click 
-	%wxPanel:connect (Panel, left_up),
+	wxPanel:connect (Panel, left_down),
 	
 	wxWindow:connect(Panel, command_button_clicked),
 	
@@ -174,6 +176,8 @@ do_init(Server) ->
 	ets:new(simData,[set,named_table,{heir,MonPid,{wxServer,main}}]),
 	ets:new(senEts,[set,named_table,{heir,MonPid,{wxServer,sen}}]),
 	ets:new(sensAnm,[set,named_table]),
+	
+	ets:insert(senEts,{max_fire,0}),
 	
 	loc_monitor:add_mon(wxMon,self()),
 	
@@ -202,6 +206,30 @@ do_init(Server) ->
 %%%%%%%%%%%%
 %% Async Events are handled in handle_event as in handle_info
 
+%add fire at (x,y)
+handle_event(#wx{event = #wxMouse{type = left_down,x = X,y = Y}}, State = #state{}) ->
+	case ets:lookup(State#state.sen_ets_name,max_fire)==[] of
+		false ->
+			[{_,Max}] = ets:lookup(State#state.sen_ets_name,max_fire),
+			case X<?Horizontal/2 of
+				true -> case Y<?Vertical/2 of
+							true -> unit_server:addFire(tl,list_to_atom("fire" ++ integer_to_list(Max+1)),X,Y),
+									ets:insert(State#state.sen_ets_name,{max_fire,Max+1});
+							false -> unit_server:addFire(bl,list_to_atom("fire" ++ integer_to_list(Max+1)),X,Y),
+									ets:insert(State#state.sen_ets_name,{max_fire,Max+1})
+						end;
+				false -> case Y<?Vertical/2 of
+							true -> unit_server:addFire(tr,list_to_atom("fire" ++ integer_to_list(Max+1)),X,Y),
+									ets:insert(State#state.sen_ets_name,{max_fire,Max+1});
+							false -> unit_server:addFire(br,list_to_atom("fire" ++ integer_to_list(Max+1)),X,Y),
+									ets:insert(State#state.sen_ets_name,{max_fire,Max+1})
+						end
+			end;
+		true -> ets:insert(State#state.sen_ets_name,{max_fire,1000})
+	end,
+	{noreply,State};
+
+
 %when randomize button clicked, randomizing all units places:
 handle_event(_Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},State = #state{}) ->
 	io:format("randomizing units coordinates ~n"),
@@ -225,12 +253,17 @@ handle_event(_Ev=#wx{id=11,event = #wxCommand{type = command_button_clicked}},St
                 Number3 ->  SenValid = true,SenNum=Number3
 	end,
 	
+	
 	Valid = (HeliValid and FireValid) and SenValid,
 	
 	case Valid == true of
-		true -> Tmp = erlang:system_time() / erlang:monotonic_time(),
-				Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
-				random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
+		true -> ets:insert(State#state.sen_ets_name,{max_fire,FireNum}),
+				%Tmp = erlang:system_time() / erlang:monotonic_time(),
+				%Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+				%random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
+				Pid2 = getPid(self()),
+				{A,_B,C}=erlang:now(),
+				random:seed(C,Pid2*Pid2,erlang:round(C/A)),
 				randUnit(heli,HeliNum,State#state.ets_name),
 				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(fire,FireNum,State#state.ets_name),
@@ -278,9 +311,13 @@ handle_event(_Ev=#wx{id=12,event = #wxCommand{type = command_button_clicked}},St
 	Valid = (HeliValid and FireValid) and CashValid,
 	
 	case Valid == true of
-		true -> Tmp = erlang:system_time() / erlang:monotonic_time(),
-				Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
-				random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
+		true -> ets:insert(State#state.sen_ets_name,{max_fire,FireNum}),
+				%Tmp = erlang:system_time() / erlang:monotonic_time(),
+				%Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+				%random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
+				Pid2 = getPid(self()),
+				{A,_B,C}=erlang:now(),
+				random:seed(C,Pid2*Pid2,erlang:round(C/A)),
 				randUnit(heli,HeliNum,State#state.ets_name),
 				%random:seed(erlang:phash2([node()]),erlang:monotonic_time(),erlang:unique_integer()),
 				randUnit(fire,FireNum,State#state.ets_name),
@@ -660,4 +697,17 @@ print_stat([H|T],Type) when Type == server ->
 	timer:sleep(200),
 	print_stat(T,Type).
 	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 	
+getPid(Pid) -> getPid(erlang:pid_to_list(Pid),false,[]).	
+	
+%getPid(_,true,Res) -> Res;									
+getPid([H|T],Start,Res) when Start==false -> case ([H|[]]==".")of
+													true -> getPid(T,true,Res);
+													false -> getPid(T,Start,Res)
+												  end;
+												  
+getPid([H|T],Start,Res) when Start==true  -> case ([H|[]]==".")of
+												true -> list_to_integer(Res);
+												false -> getPid(T,Start,Res ++ [H])
+											 end.

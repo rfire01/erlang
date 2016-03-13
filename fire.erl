@@ -284,9 +284,12 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 rand_idle_diff()->
-  Tmp = erlang:system_time() / erlang:monotonic_time(),
-  Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
-  random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()).
+  %Tmp = erlang:system_time() / erlang:monotonic_time(),
+  %Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+  %random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()).
+  Pid = getPid(self()),
+  {A,_B,C}=erlang:now(),
+  random:seed(C,Pid*Pid,erlang:round(C/A)).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -325,3 +328,18 @@ chooseStat({Type,Val}) ->
 		reason -> io:format("----reason: ~p~n",[Val]);
 		_Any -> do_nothing
 	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	
+getPid(Pid) -> getPid(erlang:pid_to_list(Pid),false,[]).	
+	
+%getPid(_,true,Res) -> Res;									
+getPid([H|T],Start,Res) when Start==false -> case ([H|[]]==".")of
+													true -> getPid(T,true,Res);
+													false -> getPid(T,Start,Res)
+												  end;
+												  
+getPid([H|T],Start,Res) when Start==true  -> case ([H|[]]==".")of
+												true -> list_to_integer(Res);
+												false -> getPid(T,Start,Res ++ [H])
+											 end.

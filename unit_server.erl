@@ -9,7 +9,7 @@
 -export([start/1,create/2,update/3,pass_server_alert/2,heli_request/3,heli_request/5,
 		 give_heli/3,choose_heli/3,heli_done/2,fire_check/2,fire_check/4,
 		 wx_update/1,start_sim/1,change_screen/6,transfer_heli/5,
-		 crash/1,crash_recover/2,stop/1,statistics/1]).
+		 crash/1,crash_recover/2,stop/1,statistics/1,addFire/4]).
     
 % gen_server callbacks
 -export([init/1,handle_call/3,handle_cast/2,
@@ -83,6 +83,9 @@ stop(Name) ->
 	
 statistics(Name) ->
 	gen_server:cast({global, Name}, {stat}). 
+	
+addFire(Name,FireName,X,Y) ->
+	gen_server:cast({global, Name}, {add_fire,FireName,X,Y}). 
   
 %%====================================================================
 %% gen_server callbacks
@@ -148,7 +151,7 @@ handle_call({wx_request}, _From, State) ->
 				QH2 = qlc:q([1	|| {{heli,_},_,_,_} <- ets:table(Ets)]),
 				Current_heli_amount = erlang:length(qlc:eval(QH2)),
 				update_stat(heli_count,Current_heli_amount),
-				update_stat(message_count,{0,erlang:timestamp()})
+				update_stat(message_count,{0,erlang:now()})
 	end,
 	
 	{reply,qlc:eval(QH),State};
@@ -218,7 +221,7 @@ handle_cast({start_sim}, State) ->
 	[sensor:start_sim(Name) || [Name] <- SenList],
 	
 	Stat = get(stat),
-	update_stat(start_sim_time,erlang:timestamp()),
+	update_stat(start_sim_time,erlang:now()),
 	ets:insert(Stat,{sim_started,true}),
 	{noreply, State};
 	
@@ -255,7 +258,7 @@ handle_cast({update,Unit_Type,Unit_Data}, State) ->
 				[{_,MyName}] = ets:lookup(Ets,myInfo),
 				[ unit_server:pass_server_alert(DstServer,[Name,RF,XF,YF]) || DstServer <- [tl,tr,bl,br], DstServer/=MyName]
 	end,
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};	
 	
 handle_cast({pass_alert,Fire_Data}, State) ->
@@ -267,7 +270,7 @@ handle_cast({pass_alert,Fire_Data}, State) ->
 		[] -> dont_care;
 		SensorList -> [ sensor:new_alert(Sen,Name) || Sen <- SensorList]%, io:format("sensor activated ~p~n",[SensorList])
 	end,
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply,State};
 	
 	
@@ -297,7 +300,7 @@ handle_cast({heli_request,Sen_name,Fire_Name}, State) ->
 				   spawn(fun() -> timer:sleep(1000), unit_server:choose_heli(MyName,{Sen_name,Fire_Name},{SR,SX,SY}) end)
 	end,
 	
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};	
 	
 handle_cast({server_heli_request,FromServer,Key,MinDist,{DstX,DstY}}, State) ->
@@ -310,7 +313,7 @@ handle_cast({server_heli_request,FromServer,Key,MinDist,{DstX,DstY}}, State) ->
 					ets:insert(Ets,{{heli,Name},X,Y,working}),
 					unit_server:give_heli(FromServer,Key,{Name,Dist,MyName})
 	end,
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};
 	
 handle_cast({give_heli,Key,Val}, State) ->
@@ -325,7 +328,7 @@ handle_cast({give_heli,Key,Val}, State) ->
 				unit_server:heli_done(Serv,Name)
 	end,
 	%io:format("heli added = ~p, key = ~p in server ~p~n",[Val,Key,MyName]),
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};
 	
 handle_cast({choose_heli,Key,{R,X,Y}}, State) ->
@@ -347,14 +350,14 @@ handle_cast({choose_heli,Key,{R,X,Y}}, State) ->
 									spawn(fun() -> timer:sleep(20000), case global:whereis_name(Name) == undefined of false -> ets:delete(Sen_fire,Key); true-> do_nothing end end);
 		no_heli -> do_nothing
 	end,
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};
 					
 handle_cast({heli_done,Name}, State) ->
 	Ets = get(ets_id),
 	%io:format("helicopter: ~p is free ~n",[Name]),
 	ets:update_element(Ets,{heli,Name},{4,not_working}),
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};
 	
 handle_cast({change_screen,NewServer,UnitInfo,UnitState,UnitStateData,Stat}, State) ->
@@ -370,7 +373,7 @@ handle_cast({change_screen,NewServer,UnitInfo,UnitState,UnitStateData,Stat}, Sta
 	
 	unit_server:transfer_heli(NewServer,[Name,X,Y,WorkState],UnitState,UnitStateData,Stat),
 	
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};
 	
 handle_cast({transfer_heli,UnitInfo,UnitState,UnitStateData,Stat}, State) ->
@@ -385,7 +388,7 @@ handle_cast({transfer_heli,UnitInfo,UnitState,UnitStateData,Stat}, State) ->
 	loc_monitor:add_mon(MonName,global:whereis_name(Name)),
 	%io:format("result of tranfer of heli ~p to server ~p, gave ~p~n",[Name,MyName,Res]),
 	
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};
 	
 handle_cast({heli_fire_check,HeliName}, State) -> 
@@ -405,7 +408,7 @@ handle_cast({heli_fire_check,HeliName}, State) ->
 		false -> heli:found_fire(HeliName,Replay)
 	end,
 	
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};
 	
 handle_cast({server_fire_check,HeliName,HX,HY},  State) -> 
@@ -423,7 +426,7 @@ handle_cast({server_fire_check,HeliName,HX,HY},  State) ->
 		false -> heli:found_fire(HeliName,Replay)
 	end,
 	
-	update_stat(message_count,{1,erlang:timestamp()}),
+	update_stat(message_count,{1,erlang:now()}),
 	{noreply, State};
 
 handle_cast({crash,Num}, _State) ->
@@ -431,6 +434,15 @@ handle_cast({crash,Num}, _State) ->
 	
 handle_cast({stat}, State) ->
 	print_stat(),
+	{noreply, State};
+	
+handle_cast({add_fire,FireName,X,Y}, State) ->
+	Data = {{fire,FireName},?FireDefaultRadius,X,Y},
+	Ets = get(ets_id),
+	[{_,MyName}] = ets:lookup(Ets,myInfo),
+	fire:start(FireName,MyName,?FireDefaultRadius,X,Y),
+	fire:start_sim(FireName),
+	ets:insert(Ets,Data),
 	{noreply, State};
 	
 handle_cast(_Message, State) ->
@@ -505,8 +517,10 @@ servers_closest_heli([{{_,_},{NextName,NextDist,NextServer}}|T],Name,Dist,Server
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 	
 overlappingFire(X1,Y1,X2,Y2,R1,R2)->
-    case ((X1-X2)*(X1-X2) + (Y1-Y2)*(Y1-Y2)) =< (R2+R1)*(R2+R1) of
-	    true->  Dis= math:sqrt((X1-X2)*(X1-X2)+(Y1-Y2)*(Y1-Y2)),
+	DisSquare= (X1-X2)*(X1-X2)+(Y1-Y2)*(Y1-Y2),
+    case (((X1-X2)*(X1-X2) + (Y1-Y2)*(Y1-Y2)) =< (R2+R1)*(R2+R1)) and (DisSquare>0)  of
+	    true->
+			Dis = math:sqrt(DisSquare),
 		    %io:format("Dis: ~p ~n",[Dis]),
 		    CosA= ((Dis*Dis)+(R1*R1)-(R2*R2))/(2*Dis*R1),
 		    %io:format("CosA: ~p ,",[CosA]),
@@ -517,12 +531,19 @@ overlappingFire(X1,Y1,X2,Y2,R1,R2)->
 						SinA=2*math:acos(CosA),
 						SinB=2*math:acos(CosB),
 						Over=(R1*R1*math:acos(CosA))-(0.5*R1*R1*math:sin(SinA))+(R2*R2*math:acos(CosB))-(0.5*R2*R2*math:sin(SinB)),
-						Ans= Over*100/(math:pi()*R1*R1)>?OVERLAP_PERC;
+						case Over*100/(math:pi()*R1*R1)>?OVERLAP_PERC of
+							true -> Ans= true;
+							false -> Ans = false
+						end;
 				false -> Ans = false
 			end,
 		    Ans;
-	    false->false
-    end.
+	    false-> false
+    end,
+	case (DisSquare==0) and (R1<R2) of
+		true -> true;
+		false -> false
+	end.
 		    
     %Temp = math:acos(math:cos(Rad)).
     %Temp * 180 / math:pi()==Deg.
@@ -565,7 +586,7 @@ terminate_unit({Type,Name}) ->
 create_stat()->
 	Stat = ets:new(stat,[set]),
 	put(stat,Stat),
-	ets:insert(Stat,{start_sim_time,erlang:timestamp()}),
+	ets:insert(Stat,{start_sim_time,erlang:now()}),
 	ets:insert(Stat,{message_count,{0,0}}),
 	ets:insert(Stat,{heli_count,{0,0,0}}).
 	

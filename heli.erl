@@ -161,9 +161,12 @@ init([crash,Data]) ->
 %% @end
 %%--------------------------------------------------------------------
 idle({idle_move}, _State) ->
-  Tmp = erlang:system_time() / erlang:monotonic_time(),
-  Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
-  random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
+  %Tmp = erlang:system_time() / erlang:monotonic_time(),
+  %Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+  %random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
+  Pid = getPid(self()),
+  {A,_B,C}=erlang:now(),
+  random:seed(C,Pid*Pid,erlang:round(C/A)),
 
   Xdif = ((random:uniform() * 2 - 1) * ?MOVEMENT_SPEED),
   Dir = random:uniform(2),
@@ -671,9 +674,11 @@ step_circle(CX,CY,R,Angle,Ets) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 rand_idle_diff()->
-  Tmp = erlang:system_time() / erlang:monotonic_time(),
-  Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
-  random:seed(Time,erlang:monotonic_time(),erlang:unique_integer()),
+  %Tmp = erlang:system_time() / erlang:monotonic_time(),
+  %Time = erlang:round((Tmp - erlang:trunc(Tmp)) * 100000000),
+  Pid = getPid(self()),
+  {A,_B,C}=erlang:now(),
+  random:seed(C,Pid*Pid,erlang:round(C/A)),
 
   Xdif = ((random:uniform() * 2 - 1) * ?MOVEMENT_SPEED),
   Dir = random:uniform(2),
@@ -724,7 +729,7 @@ create_stat()->
 	ets:insert(Stat,{fires,0}),
 	ets:insert(Stat,{current_work_time,0}),
 	ets:insert(Stat,{work_time,0}),
-	ets:insert(Stat,{start_time,erlang:timestamp()}),
+	ets:insert(Stat,{start_time,erlang:now()}),
 	ets:insert(Stat,{dest_time,{0,0,ok}}),
 	ets:insert(Stat,{travelled,0}).
 	
@@ -781,3 +786,18 @@ chooseStat({Type,Val}) ->
 					end;
 		_Any -> do_nothing
 	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	
+getPid(Pid) -> getPid(erlang:pid_to_list(Pid),false,[]).	
+	
+%getPid(_,true,Res) -> Res;									
+getPid([H|T],Start,Res) when Start==false -> case ([H|[]]==".")of
+													true -> getPid(T,true,Res);
+													false -> getPid(T,Start,Res)
+												  end;
+												  
+getPid([H|T],Start,Res) when Start==true  -> case ([H|[]]==".")of
+												true -> list_to_integer(Res);
+												false -> getPid(T,Start,Res ++ [H])
+											 end.

@@ -212,7 +212,7 @@ idle({move_dst,DstX,DstY,Objective},_State) ->
 	Angle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
 	{DifX,DifY} = calc_destination_movement_diffs(Angle),
 	
-	update_stat(current_work_time,erlang:timestamp()),
+	update_stat(current_work_time,erlang:now()),
 	
 	{next_state,move_destination,{DifX,DifY,DstX,DstY,Objective},?REFRESH_SPEED};
 	
@@ -252,7 +252,7 @@ move_destination(timeout,{DifX,DifY,DstX,DstY,Objective}) ->
 		true -> %io:format("arrive to objective: ~p and starting circle~n",[Objective]), %% if only searching fire, then remove objective
 				{CR,CX,CY,A} = Objective,
 				DifAngle = calc_angle_diff(CR),
-				update_stat(dest_time,erlang:timestamp()),
+				update_stat(dest_time,erlang:now()),
 				case Need_to_change_screen of 
 					false -> {next_state,search_circle,{CR,CX,CY,A,DifAngle,Objective},?REFRESH_SPEED};
 					Serv -> wait_for_server_recover(ServerName,Serv,[MyName,CurrentX,CurrentY],search_circle,{CR,CX,CY,A,DifAngle,Objective})
@@ -292,7 +292,7 @@ search_circle(timeout,{R,CX,CY,Angle,DifAngle,SensorData}) ->
 	unit_server:fire_check(ServerName,MyName),
 	case Angle > 6.29 of 
 		true -> %io:format("finished circle~n"),
-				update_stat(work_time,erlang:timestamp()),
+				update_stat(work_time,erlang:now()),
 				{DifX,DifY} = rand_idle_diff(),
 				unit_server:heli_done(ServerName,MyName),
 				case Need_to_change_screen of 
@@ -364,7 +364,7 @@ extinguish(timeout,{circle,N,R,X,Y,Angle,SensorData}) ->
 					  NextAngle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
 					  {NextDifX,NextDifY} = calc_destination_movement_diffs(NextAngle),
 					  update_stat(fires,1),
-					  %update_stat(work_time,erlang:timestamp()),
+					  %update_stat(work_time,erlang:now()),
 					  
 					  case Need_to_change_screen of
 						false -> {next_state,move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData},?REFRESH_SPEED};
@@ -419,7 +419,7 @@ extinguish(timeout,{straight,DifX,DifY,NF,XF,YF,Angle,SensorData}) ->
 					  NextAngle = calc_destination_angle(CurrentX,CurrentY,DstX,DstY),
 					  {NextDifX,NextDifY} = calc_destination_movement_diffs(NextAngle),
 					  update_stat(fires,1),
-					  %update_stat(work_time,erlang:timestamp()),
+					  %update_stat(work_time,erlang:now()),
 					  
 					  case Need_to_change_screen of
 						false -> {next_state,move_destination,{NextDifX,NextDifY,DstX,DstY,SensorData},?REFRESH_SPEED};
@@ -778,7 +778,7 @@ chooseStat({Type,Val}) ->
 		travelled -> io:format("----distance travelled: ~p [pixels]~n",[Val]);
 		fires -> io:format("----fire extinguished by this heli: ~p ~n",[Val]);
 		work_time -> [{_,Start}] = ets:lookup(Stat,start_time),
-					 io:format("----total work time: ~p ; % of time working: ~p~n",[Val/1000000,100*Val/timer:now_diff(erlang:timestamp(),Start)]);
+					 io:format("----total work time: ~p ; % of time working: ~p~n",[Val/1000000,100*Val/timer:now_diff(erlang:now(),Start)]);
 		dest_time -> {Time,Count,_} = Val,
 					 case Count ==0 of
 						true -> io:format("----average time to reach to destination: ~p ~n",[undefined]);

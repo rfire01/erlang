@@ -105,8 +105,9 @@ init([Name]) ->
 	Sen_fire = ets:new(sen_fire,[bag,public]),
 	put(sen_fire_id,Sen_fire),
 	%io:format("######end of init gen server~n",[]),
-	
+
 	create_stat(),
+
 	
     {ok, initialized};
 	
@@ -347,7 +348,7 @@ handle_cast({choose_heli,Key,{R,X,Y}}, State) ->
 		{ChoosenHeli,OtherHeli} -> [ unit_server:heli_done(HeliServer,Heli) || {Heli,HeliServer} <- OtherHeli],
 									heli:move_dst(ChoosenHeli,X+R,Y,{R,X,Y,0}),
 									%wait 10 second and allow another heli request from sensor-fire pair
-									spawn(fun() -> timer:sleep(20000), case global:whereis_name(Name) == undefined of false -> ets:delete(Sen_fire,Key); true-> do_nothing end end);
+									spawn(fun() -> timer:sleep(20000), case lists:member(Sen_fire,ets:all()) == false of false -> ets:delete(Sen_fire,Key); true-> do_nothing end end);
 		no_heli -> do_nothing
 	end,
 	update_stat(message_count,{1,erlang:now()}),

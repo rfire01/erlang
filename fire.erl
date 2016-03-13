@@ -130,7 +130,7 @@ idle({merge}, State) ->
 	[{_,ServerName}] = ets:lookup(Ets,serverName),
 	unit_server:update(ServerName,fire,[MyName,0]),
 	io:format("merge ~p~n",[MyName]),
-	update_stat(time,erlang:timestamp()),
+	update_stat(time,erlang:now()),
 	update_stat(reason,"fire merged"),
 	%print_stat(),
 	{next_state, fire_out, State,0};
@@ -180,7 +180,7 @@ idle({decrease},_From,State) ->
 	unit_server:update(ServerName,fire,[MyName,NewRad]),
 	%io:format("new Radius = ~p~n",[NewRad]),
 	case NewRad == 0 of
-		true -> update_stat(time,erlang:timestamp()),
+		true -> update_stat(time,erlang:now()),
 				update_stat(reason,"fire extinguished"),
 				{reply, {fire_dead,NewRad}, fire_out, State,0};
 		false -> {reply, {fire_alive,NewRad}, idle, State, ?FIRE_REFRESH_SPEED}
@@ -296,7 +296,7 @@ rand_idle_diff()->
 create_stat(StartRad)->
 	Stat = ets:new(stat,[set]),
 	put(stat,Stat),
-	ets:insert(Stat,{start_time,erlang:timestamp()}),
+	ets:insert(Stat,{start_time,erlang:now()}),
 	ets:insert(Stat,{max_rad,StartRad}).
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

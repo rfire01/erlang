@@ -39,7 +39,7 @@ start() ->
 	Server = wx:new(),
     wx_object:start(?MODULE, Server, []).
 	
-crash() -> Pid = self(),%whereis(wx_server),
+crash() -> Pid = whereis(wx_server),
 		   Pid ! {crash,0}.
 		   
 crash_recover(MainData,SenData) -> 
@@ -51,7 +51,7 @@ init(Server) ->
         wx:batch(fun() -> do_init(Server) end).
 
 do_init([Server,MainData,SenData]) ->
-	%register(wx_server,self()), io:format("done! 1~n"),
+	register(wx_server,self()),% io:format("done! 1~n"),
 	
 	Frame = wxFrame:new(Server, -1, "wx test sim", [{size,{?Horizontal, ?Vertical}}]),		%%create frame for the simulator
 	Panel  = wxPanel:new(Frame,[{style, ?wxFULL_REPAINT_ON_RESIZE}]),						%%create panel from the frame
@@ -116,7 +116,7 @@ do_init([Server,MainData,SenData]) ->
 	{Panel, State};
 		
 do_init(Server) ->
-	%register(wx_server,self()),
+	register(wx_server,self()),
 	%%----------- init local servers (for each part of screen)
 	case connect_to_nodes([?TLSERVER_NODE,?TRSERVER_NODE,?BLSERVER_NODE,?BRSERVER_NODE]) of
 		ok -> case global:whereis_name(tl) == undefined of
@@ -409,6 +409,7 @@ code_change(_, _, State) ->
     {stop, ignore, State}.
 
 terminate(Reason, State=#state{}) ->
+	unregister(wx_server),
 	%io:format("reason = ~p~n",[Reason]),
 	wxWindow:destroy(State#state.canvas),
 	wx:destroy(),
